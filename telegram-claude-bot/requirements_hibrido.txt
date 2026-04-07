@@ -1,0 +1,19 @@
+# Bot Híbrido: Gemini + Claude para n8n
+
+# Telegram Bot
+python-telegram-bot==21.0
+
+# Gemini API
+google-generativeai==0.8.3
+
+# Claude API (para Claudio Server)
+anthropic==0.40.0
+
+# Utilities
+python-dotenv==1.0.0
+httpx==0.27.2
+
+# Claudio Server dependencies
+fastapi==0.115.0
+uvicorn[standard]==0.32.0
+pydantic==2.9.2
