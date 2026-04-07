@@ -1,6 +1,8 @@
 # Estado del Despliegue - Bot Híbrido Gemini + Claudio
 
- Fecha: 2026-04-07 19:50
+ Fecha: 2026-04-07 19:54
+
+## ✅ SISTEMA COMPLETO ACTIVO Y FUNCIONAL
 
 ## Resumen de Servicios
 
@@ -12,11 +14,20 @@
 - **Telegram Token**: 8612455621:AAGuhRawUuqFdzBvWN1hqAhPp7mlvMB09ZU
 
 ### Servicio 2: Claudio Server (n8n Expert)
-- **Archivo**: `claudio_complete.py`
-- **PID**: 1509130
+- **Archivo**: `claudio_complete.py` (664 líneas - versión completa)
+- **PID**: 1509523
 - **Puerto**: 8000
 - **Estado**: ✅ ACTIVO
+- **Versión**: 3.0.0 COMPLETE
 - **Función**: Provee expertise de n8n workflows via API
+- **Capacidades**:
+  - ✅ 64 nodos n8n en base de datos
+  - ✅ 18 templates de workflows
+  - ✅ 7 skills especializadas
+  - ✅ MCP Tools completas
+  - ✅ n8n API access (list/create/update/activate workflows)
+  - ✅ Expression validation
+  - ✅ Node configuration guidance
 
 ## Conectividad
 
@@ -70,6 +81,34 @@ ssh ubuntu@51.222.207.250 'pkill -f claudio_complete && cd /opt/claudio-bot && n
 
 https://t.me/claudio_n8n_bot
 
+## Capacidades Confirmadas
+
+### ✅ Bot de Telegram (Gemini)
+- Chat general funcional
+- Routing automático a Claudio para preguntas n8n
+- Comandos: /start, /health, /help, /clear
+
+### ✅ Claudio Server (Claude + n8n-MCP)
+- **7 Skills especializadas**:
+  1. Expression Syntax
+  2. MCP Tools Expert
+  3. Workflow Patterns
+  4. Validation Expert
+  5. Node Configuration
+  6. JavaScript Code
+  7. Python Code
+
+- **MCP Tools disponibles**:
+  - search_nodes() - 64 nodos n8n
+  - get_node() - Info detallada de nodos
+  - validate_node() - Validación de configuraciones
+  - search_templates() - 18 templates
+  - validate_expression() - Validación de expresiones
+  - list_workflows() - Listar workflows en n8n
+  - create_workflow() - Crear workflows
+  - update_workflow() - Actualizar workflows
+  - activate_workflow() - Activar workflows
+
 ## Problemas Detectados
 
 ### ⚠️ Saldo Insuficiente en Anthropic API
@@ -84,6 +123,22 @@ https://t.me/claudio_n8n_bot
 1. Ir a https://console.anthropic.com/settings/plans
 2. Agregar créditos o actualizar plan
 3. Verificar que la API key tiene créditos disponibles
+
+### ⚠️ n8n API No Configurada
+**Estado**: `n8n.connected: false`
+
+**Impacto**:
+- Las MCP tools de base de datos funcionan (nodos, templates, validación)
+- Las operaciones de n8n API (list/create/update workflows) requieren configurar n8n
+
+**Solución** (opcional):
+Para habilitar creación de workflows en tu instancia n8n:
+```bash
+# Agregar a .env en VPS
+N8N_API_KEY=tu_api_key_de_n8n
+N8N_INSTANCE_URL=http://localhost:5678  # o tu URL de n8n
+N8N_HOST_HEADER=tu_host_header
+```
 
 ## Archivos en VPS
 
