@@ -1,461 +1,308 @@
-# Claudio - Expert n8n Workflow Assistant Bot
+# 🤖 Claudio - Expert n8n Workflow Assistant Bot
 
-> 🤖 Your intelligent Telegram bot powered by AI for n8n workflow automation
+> **Tu asistente inteligente de Telegram para automatización de flujos n8n con múltiples proveedores de IA**
 
 [![Python](https://img.shields.io/badge/Python-3.9+-blue.svg)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/Version-4.2-brightgreen.svg)](https://github.com/LeonardoPS1/bot_n8n)
+[![Version](https://img.shields.io/badge/Version-4.6.1-brightgreen.svg)](https://github.com/LeonardoPS1/bot_n8n)
 
 ---
 
-## 🌟 Features
+## 🌟 Características Principales
 
-- **🧠 AI-Powered**: Powered by Claude, GPT-4, Gemini, Qwen, or DeepSeek with multi-provider support
-- **🔄 Auto-Fallback**: Automatically switches models when quota/errors occur
-- **➕ Custom Models**: Add any OpenAI/Anthropic-compatible API
-- **⚙️ Admin Commands**: Manage models via Telegram commands
-- **📊 n8n Integration**: Complete access to 1,396 n8n nodes and 2,709+ workflow templates
-- **🔧 Workflow Management**: Create, modify, and validate n8n workflows via chat
-- **🎯 Expression Validation**: Validate n8n expressions and fix common errors
-- **📝 Code Generation**: Generate code for n8n Code nodes (JavaScript/Python)
-- **🔒 Secure**: User restriction support and environment-based configuration
-- **🚀 Multiple Deployments**: Local, VPS, or Docker deployment options
-- **📖 Complete Guide**: Step-by-step installation guide included
+### 🧠 Multi-Proveedor IA
+- **Anthropic Claude** (claude-sonnet-4, claude-3.5-sonnet)
+- **OpenAI GPT-4** (gpt-4o-mini, gpt-4o, gpt-4-turbo)
+- **Google Gemini** (gemini-2.5-pro, gemini-2.5-flash, gemini-3.1-preview)
+- **Alibaba Qwen** (qwen-plus, qwen-turbo)
+- **DeepSeek** (deepseek-chat, muy económico)
+- **Ollama** (local y GRATIS - phi3, llama3, mistral)
+- **Modelos Personalizados** (cualquier API compatible con OpenAI/Anthropic)
+
+### 🔄 Auto-Fallback Inteligente
+Cambia automáticamente entre proveedores cuando uno falla o se queda sin tokens
+
+### ⚙️ Administración por Telegram
+- Cambiar modelos dinámicamente
+- Agregar API keys de forma segura
+- Verificar estado del sistema
+- Probar conexiones
+
+### 📊 Integración Completa con n8n
+- Acceso a **1,396 nodos** (812 core + 584 community)
+- **2,709+ templates** de workflows
+- Crear, modificar y validar workflows
+- Generar código para Code nodes
+- Validar expresiones de n8n
+
+### 🔒 Seguridad
+- Gestión de API keys con enmascaramiento
+- Restricción de usuarios por ID
+- Modo administrador con permisos
 
 ---
 
-## 📸 Quick Start (3 minutes)
+## 📸 Inicio Rápido (3 minutos)
 
 ```bash
-# Clone the repository
+# Clonar el repositorio
 git clone https://github.com/LeonardoPS1/bot_n8n.git
 cd bot_n8n
 
-# Run the interactive installer
+# Ejecutar el instalador interactivo
 python3 install.py
 ```
 
-The installer will guide you through:
-- ✅ Select AI provider (Anthropic Claude, OpenAI GPT-4, Ollama, or multiple)
-- ✅ Configure Telegram bot token
-- ✅ Set up n8n integration (optional)
-- ✅ Choose deployment mode (Local, VPS, or Docker)
-- ✅ Configure security settings
-- ✅ Run post-installation tests
+El instalador te guiará paso a paso en:
+1. ✅ Selección de proveedor IA
+2. ✅ Configuración de Telegram
+3. ✅ Integración con n8n (opcional)
+4. ✅ Modo de despliegue (Local/VPS/Docker)
+5. ✅ Configuración de seguridad
+6. ✅ Verificación post-instalación
 
 ---
 
-## 📖 Complete Installation Guide
+## 📖 Documentación Completa
 
-**For detailed installation instructions, troubleshooting, and FAQ:**
+### 📄 Guías Disponibles
 
-### 📄 [GUIA_INSTALACION_COMPLETA.md](GUIA_INSTALACION_COMPLETA.md)
-
-This guide includes:
-- Step-by-step installation for all deployment modes
-- How to obtain all required credentials
-- Complete troubleshooting section
-- FAQ with answers to common questions
-- Post-installation verification
-
-**Or view it as PDF:** Convert the Markdown file to PDF for offline reading.
-
----
-
-## 📋 Quick Configuration
-
-### Minimum Required Credentials
-
-| Credential | Where to Get |
-|------------|--------------|
-| Telegram Bot Token | [@BotFather](https://t.me/BotFather) - `/newbot` |
-| Anthropic API Key | [console.anthropic.com](https://console.anthropic.com) - Settings → API Keys |
-| OpenAI API Key | [platform.openai.com](https://platform.openai.com) - API Keys |
-| Gemini API Key | [ai.google.dev](https://ai.google.dev/) - Create API Key |
-| Qwen API Key | [dashscope.aliyun.com](https://dashscope.aliyun.com/) - API Keys |
-| DeepSeek API Key | [platform.deepseek.com](https://platform.deepseek.com/) - API Keys |
-| n8n API Key | Your n8n Instance - Settings → API |
-| Your User ID | [@userinfobot](https://t.me/userinfobot) - `/start` |
-
-### Environment Variables (.env)
-
-```bash
-# Telegram
-TELEGRAM_TOKEN=your_telegram_bot_token_here
-
-# AI Provider (choose one)
-AI_PROVIDER=anthropic
-ANTHROPIC_API_KEY=sk-ant-your-key-here
-ANTHROPIC_MODEL=claude-sonnet-4-20250514
-
-# Or OpenAI
-# AI_PROVIDER=openai
-# OPENAI_API_KEY=sk-your-key-here
-# OPENAI_MODEL=gpt-4o
-
-# Or Google Gemini
-# AI_PROVIDER=gemini
-# GEMINI_API_KEY=your_gemini_key_here
-# GEMINI_MODEL=gemini-2.0-flash-exp
-
-# Or Alibaba Qwen
-# AI_PROVIDER=qwen
-# QWEN_API_KEY=your_qwen_key_here
-# QWEN_MODEL=qwen-plus
-
-# Or DeepSeek
-# AI_PROVIDER=deepseek
-# DEEPSEEK_API_KEY=sk-your-deepseek-key-here
-# DEEPSEEK_MODEL=deepseek-chat
-
-# n8n (optional)
-N8N_API_KEY=your_n8n_api_key
-N8N_INSTANCE_URL=https://n8n.yourdomain.com
-
-# Server
-CLADIO_PORT=8000
-CLADIO_SERVER_URL=http://localhost:8000
-
-# Security
-ALLOWED_USERS=*  # or comma-separated user IDs
-```
-
----
-
-## 🚀 Deployment Options
-
-### Local Development
-
-```bash
-# Terminal 1: Start server
-python claudio_complete.py
-
-# Terminal 2: Start bot
-python bot_v2.py
-```
-
-### VPS Deployment
-
-```bash
-# After running installer, execute:
-bash deploy_vps.sh
-
-# Or manually:
-ssh user@your-vps
-# Follow manual installation guide in GUIA_INSTALACION_COMPLETA.md
-```
-
-### Docker
-
-```bash
-# Configure .env first
-cp .env.example .env
-nano .env
-
-# Start
-docker-compose up -d
-
-# View logs
-docker-compose logs -f
-```
-
----
-
-## 💡 Usage Examples
-
-Once your bot is running, open Telegram and start chatting!
-
-### Create a Workflow
-
-```
-You: Create a workflow that sends a Slack message when a webhook is received
-
-Claudio: I'll help you create a webhook-to-Slack workflow:
-
-1. Webhook Trigger - Receives HTTP POST requests
-2. Set Node - Extracts message from webhook body
-3. Slack Node - Sends message to channel
-
-Configuration for Webhook node:
-- Path: slack-webhook
-- Method: POST
-- Response Mode: lastNode
-
-Would you like me to create this workflow for you?
-```
-
-### Validate an Expression
-
-```
-You: Validate this expression: {{$json.data.user.email}}
-
-Claudio: The expression syntax is correct ✓
-
-Notes:
-- $json accesses the current item's data
-- Nested fields use dot notation
-- This expression extracts: data.user.email from the JSON
-```
-
-### Get Node Information
-
-```
-You: Tell me about the Slack node in n8n
-
-Claudio: Here's information about the Slack node:
-
-Node Type: n8n-nodes-base.slack
-Description: Send messages to Slack
-
-Key Operations:
-- message: Post a message to a channel
-- user: Get user information
-- channel: Get channel information
-
-Required parameters for message operation:
-- channelId: The channel ID
-- text: Message text
-
-Would you like me to help you configure a Slack node?
-```
-
----
-
-## 🧩 What Claudio Can Do
-
-| Task | Description |
+| Guía | Descripción |
 |------|-------------|
-| **Create Workflows** | Design complete n8n workflows from descriptions |
-| **Validate Expressions** | Check n8n expressions for syntax errors |
-| **Generate Code** | Write JavaScript/Python for Code nodes |
-| **Search Nodes** | Find the right n8n nodes for your needs |
-| **Debug Issues** | Troubleshoot workflow problems |
-| **Explain Concepts** | Teach n8n best practices |
-| **Template Access** | Search 2,709+ workflow templates |
-
-### 🎯 7 Specialized Skills
-
-Claudio includes 7 expert skills that activate automatically:
-
-| Skill | Expertise |
-|-------|-----------|
-| **Expression Syntax** | Validates `{{}}` patterns, $json, $node variables |
-| **MCP Tools** | Tool selection, smart parameters, validation profiles |
-| **Workflow Patterns** | 5 proven patterns from 2,700+ templates |
-| **Validation** | Error catalog, false positives, solutions |
-| **Node Configuration** | Property dependencies, AI connections |
-| **JavaScript Code** | Data access, return format, common errors |
-| **Python Code** | Limitations, standard library, workarounds |
-
-> 💡 **Access skills via API:** `GET /api/skills` or `GET /api/skills/{skill_name}`
+| **[GUIA_INSTALACION_COMPLETA.md](GUIA_INSTALACION_COMPLETA.md)** | Guía paso a paso detallada |
+| **[INSTRUCCIONES_DESPLIEGUE_VPS.md](INSTRUCCIONES_DESPLIEGUE_VPS.md)** | Despliegue en VPS |
+| **[.env.example](.env.example)** | Variables de entorno |
 
 ---
 
-## 🏗️ Architecture
+## 🚀 Modos de Despliegue
 
-```
-┌─────────────────┐
-│  Telegram User  │
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────┐      ┌──────────────────┐
-│  Telegram Bot   │─────▶│  Claudio Server  │
-│   (bot_v2.py)   │      │(claudio_complete)│
-└─────────────────┘      └────────┬─────────┘
-                                  │
-                    ┌─────────────┼─────────────┐
-                    ▼             ▼             ▼
-              ┌─────────┐   ┌─────────┐   ┌─────────┐
-              │Anthropic│   │ OpenAI  │   │  Ollama │
-              │   API   │   │   API   │   │ (Local) │
-              └─────────┘   ┘─────────┘   └─────────┘
-                    │
-                    ▼
-              ┌─────────┐   ┌─────────┐
-              │   n8n   │   │  Node   │
-              │   API   │   │Database │
-              └─────────┘   └─────────┘
-```
-
----
-
-## ⚙️ Admin Commands & Model Management
-
-Claudio includes powerful admin commands to manage AI models via Telegram:
-
-### Admin Commands
-
-| Command | Description | Admin Only |
-|---------|-------------|------------|
-| `/status` | Show current model and provider status | ✅ |
-| `/models` | List all available models and providers | ✅ |
-| `/switch <provider>` | Switch to different AI provider | ✅ |
-| `/addmodel <name> <key> <url>` | Add custom AI model | ✅ |
-| `/test` | Test current model availability | ✅ |
-| `/health` | Check server health | ❌ |
-| `/clear` | Clear conversation history | ❌ |
-
-### Auto-Fallback Feature
-
-When `AI_PROVIDER=multi`, Claudio automatically switches models when:
-
-- ⚠️ **Quota exceeded** - Out of tokens/API limit
-- ❌ **Rate limit** - Too many requests
-- 🔌 **Connection error** - Provider unreachable
-
-**Fallback Order** (configurable):
-```
-Anthropic → OpenAI → Gemini → Qwen → DeepSeek → Ollama → Custom
-```
-
-**Notification:** You'll receive Telegram messages when models switch:
-```
-🔄 Modelo cambiado: Anthropic → OpenAI
-⚠️ Sin cuota en OpenAI, cambiando de modelo...
-✅ Modelo custom agregado: mi-modelo-custom
-```
-
-### Custom Models
-
-Add any OpenAI or Anthropic-compatible API:
-
+### 1️⃣ Modo Local (Desarrollo)
 ```bash
-# Add via Telegram command
-/addmodel mi-modelo sk-... https://api.example.com/v1 openai
-
-# Or configure in .env
-CUSTOM_MODEL_NAME=mi-modelo
-CUSTOM_MODEL_API_KEY=sk-...
-CUSTOM_MODEL_BASE_URL=https://api.example.com/v1
-CUSTOM_MODEL_PROVIDER=openai
+python3 install.py
+# Selecciona "Local" cuando pregunte
+python3 bot_v2.py    # Terminal 1: Bot de Telegram
+python3 claudio_complete.py    # Terminal 2: Servidor API
 ```
 
-### Environment Variables for Admin
-
+### 2️⃣ Modo VPS (Producción)
 ```bash
-# Admin users (can manage models)
-ALLOWED_ADMIN_USERS=123456789,987654321
+# Usar el script de despliegue automático
+python deploy_vps.py
+# O seguir la guía de VPS
+```
 
-# Auto-fallback (default: true)
-AUTO_FALLBACK=true
-
-# Fallback order
-FALLBACK_ORDER=anthropic,openai,gemini,qwen,deepseek,ollama
-
-# Bot notification URL
-BOT_NOTIFICATION_URL=http://localhost:8000/api/notify
+### 3️⃣ Modo Docker
+```bash
+docker-compose up -d
 ```
 
 ---
 
-## 🛠️ Development
+## 🎯 Comandos de Telegram
 
-### Project Structure
+### Comandos Básicos
+| Comando | Descripción |
+|---------|-------------|
+| `/start` | Iniciar el bot |
+| `/help` | Mostrar ayuda |
+| `/status` | Ver estado y proveedor actual |
+| `/health` | Verificar salud del sistema |
+
+### Comandos de Administración
+| Comando | Descripción |
+|---------|-------------|
+| `/models` | Listar modelos disponibles |
+| `/switch <proveedor>` | Cambiar de modelo |
+| `/addkey <proveedor>` | Agregar API key (seguro) |
+| `/addmodel <custom>` | Agregar modelo personalizado |
+| `/test` | Probar conexión |
+| `/admin` | Panel de administración |
+
+---
+
+## 🔑 Credenciales Necesarias
+
+### Para Telegram Bot
+- **Telegram Bot Token**: Obtener de [@BotFather](https://t.me/BotFather)
+- **Tu User ID**: Obtener de [@userinfobot](https://t.me/userinfobot)
+
+### Para Proveedores IA
+| Proveedor | Dónde obtener | Costo |
+|-----------|---------------|-------|
+| **Anthropic** | [console.anthropic.com](https://console.anthropic.com) | $$ |
+| **OpenAI** | [platform.openai.com](https://platform.openai.com) | $$ |
+| **Gemini** | [ai.google.dev](https://ai.google.dev/) | Gratis tier |
+| **Qwen** | [dashscope.aliyun.com](https://dashscope.aliyun.com/) | $ |
+| **DeepSeek** | [platform.deepseek.com](https://platform.deepseek.com/) | $ |
+| **Ollama** | [ollama.ai](https://ollama.ai/) | **GRATIS** |
+
+### Para n8n (Opcional)
+- **API Key**: Configuración → API en tu instancia n8n
+- **URL**: Tu instancia de n8n (ej: https://n8n.tudominio.com)
+
+---
+
+## 📊 Estructura del Proyecto
 
 ```
-bot_n8n/
-├── bot_v2.py                 # Telegram bot interface
-├── claudio_complete.py       # FastAPI server with AI
-├── n8n_database.py           # n8n nodes and templates database
-├── n8n_mcp_tools.py          # n8n-MCP tools implementation
-├── install.py                # Interactive installer ⭐
-├── requirements.txt          # Python dependencies
-├── .env.example              # Environment template
-├── GUIA_INSTALACION_COMPLETA.md  # Complete guide 📖
-├── deploy_vps_complete.sh    # VPS deployment script
-├── test_installation.sh      # Post-installation test
-├── skills/                   # Specialized AI skills
-│   ├── __init__.py
+telegram-claude-bot/
+├── bot_v2.py                    # Bot de Telegram
+├── claudio_complete.py          # Servidor API FastAPI
+├── n8n_mcp_tools.py            # Herramientas n8n
+├── n8n_database.py             # Base de datos de nodos
+├── install.py                  # Instalador interactivo
+├── requirements.txt            # Dependencias Python
+├── .env.example                # Plantilla de configuración
+├── skills/                     # Módulos de especialización
 │   ├── n8n_expression_syntax.py
 │   └── n8n_other_skills.py
-├── Dockerfile                # Docker configuration
-├── docker-compose.yml        # Docker Compose setup
-└── README.md                 # This file
+└── README.md                   # Este archivo
 ```
 
 ---
 
-## 🐛 Troubleshooting
+## ⚙️ Configuración
 
-### Bot doesn't respond
+### Archivo .env
 
 ```bash
-# Check bot logs
-sudo journalctl -u claudio-telegram-bot -f  # VPS
-# Or check terminal output (local)
+# ============================================
+# TELEGRAM
+# ============================================
+TELEGRAM_TOKEN=tu_token_aqui
+ALLOWED_USERS=tu_user_id_aqui
+ALLOWED_ADMIN_USERS=tu_user_id_aqui
 
-# Verify bot token
-echo $TELEGRAM_TOKEN
+# ============================================
+# PROVEEDOR IA
+# ============================================
+AI_PROVIDER=multi                # multi, anthropic, openai, gemini, qwen, deepseek, ollama
+AUTO_FALLBACK=true
+FALLBACK_ORDER=openai,ollama,deepseek,gemini,anthropic
 
-# Test API connection
-curl https://api.telegram.org/bot<YOUR_TOKEN>/getMe
+# OpenAI (ejemplo)
+OPENAI_API_KEY=sk-proj-tu-key-aqui
+OPENAI_MODEL=gpt-4o-mini
+
+# Ollama (ejemplo local y gratis)
+OLLAMA_BASE_URL=http://localhost:11434
+OLLAMA_MODEL=phi3:mini
+
+# ============================================
+# N8N (OPCIONAL)
+# ============================================
+N8N_INSTANCE_URL=https://n8n.tudominio.com
+N8N_API_KEY=tu_api_key_aqui
 ```
 
-### API errors
+---
 
+## 🔄 Auto-Fallback
+
+El sistema cambia automáticamente entre proveedores en este orden:
+
+```
+1. openai (gpt-4o-mini - rápido y económico)
+2. ollama (phi3:mini - gratis y local)
+3. deepseek (deepseek-chat - muy económico)
+4. gemini (gemini-2.5-pro - potente)
+5. anthropic (claude-sonnet-4 - más capaz)
+```
+
+Cuando un proveedor falla o se queda sin tokens, el sistema:
+1. Notifica el cambio
+2. Cambia al siguiente proveedor
+3. Continúa la conversación sin interrupción
+
+---
+
+## 🛠️ Solución de Problemas
+
+### Bot no responde
 ```bash
-# Check server logs
-sudo journalctl -u claudio-server -f  # VPS
+# Verificar estado de servicios
+sudo systemctl status claudio-server
+sudo systemctl status claudio-telegram-bot
 
-# Verify API keys
-cat .env | grep API_KEY
-
-# Test health endpoint
-curl http://localhost:8000/health
+# Ver logs
+sudo journalctl -u claudio-server -n 50
+sudo journalctl -u claudio-telegram-bot -n 50
 ```
 
-### For more solutions
+### Error de timeout
+- Aumentar `REQUEST_TIMEOUT=120` en `.env`
+- Cambiar a proveedor más rápido (OpenAI o Ollama)
 
-See the [Complete Installation Guide](GUIA_INSTALACION_COMPLETA.md#7-solución-de-problemas)
+### Error de conexión n8n
+- Verificar `N8N_INSTANCE_URL` y `N8N_API_KEY`
+- Probar acceso: `curl -H "X-N8N-API-KEY: tu_key" tu_n8n_url/api/v1/workflows`
 
----
+### Ollama no funciona
+```bash
+# Verificar Ollama está corriendo
+sudo systemctl status ollama
 
-## 🔒 Security
-
-- **User Restriction**: Limit bot access to specific Telegram users
-- **Environment Variables**: Never commit `.env` file
-- **API Key Rotation**: Regularly update your API keys
-- **HTTPS**: Use HTTPS for production deployments
-- **Rate Limiting**: Consider implementing rate limits for production
-
----
-
-## 📝 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+# Descargar modelo
+ollama pull phi3:mini
+```
 
 ---
 
-## 🤝 Contributing
+## 📈 Requisitos del Sistema
 
-Contributions are welcome! Please feel free to submit a Pull Request.
+### Mínimos
+- Python 3.9+
+- 2GB RAM
+- 10GB disco
 
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/AmazingFeature`)
-3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
-4. Push to the branch (`git push origin feature/AmazingFeature`)
-5. Open a Pull Request
+### Recomendados (VPS)
+- Python 3.13+
+- 4GB RAM
+- 20GB disco
+- Ubuntu 22.04+
 
----
-
-## 📧 Support
-
-- 📖 [Complete Guide](GUIA_INSTALACION_COMPLETA.md)
-- 🐛 [Issue Tracker](https://github.com/LeonardoPS1/bot_n8n/issues)
-- 💬 [Discussions](https://github.com/LeonardoPS1/bot_n8n/discussions)
-
----
-
-## 🙏 Acknowledgments
-
-- [Anthropic](https://www.anthropic.com) for Claude AI
-- [OpenAI](https://openai.com) for GPT-4
-- [n8n](https://n8n.io) for the workflow automation platform
-- [python-telegram-bot](https://github.com/python-telegram-bot/python-telegram-bot) for the excellent library
+### Para Ollama
+- CPU: 4+ cores recomendado
+- RAM: 8GB+ para modelos grandes
+- GPU: Opcional, para modelos más grandes
 
 ---
 
-**Made with ❤️ by LeonardoPS1**
+## 🤝 Contribuir
 
-*Star ⭐ this repo if it helped you!*
+Contribuciones son bienvenidas! Por favor:
+
+1. Fork el proyecto
+2. Crea una rama para tu feature
+3. Commit tus cambios
+4. Push a la rama
+5. Abre un Pull Request
+
+---
+
+## 📄 Licencia
+
+Este proyecto está bajo la Licencia MIT. Ver [LICENSE](LICENSE) para detalles.
+
+---
+
+## 🙋 Soporte
+
+- 📧 Issues: [GitHub Issues](https://github.com/LeonardoPS1/bot_n8n/issues)
+- 📖 Documentación: [Wiki del Proyecto](https://github.com/LeonardoPS1/bot_n8n/wiki)
+- 💬 Discord: [Servidor de Comunidad](https://discord.gg/claudio-bot)
+
+---
+
+## 🌟 Características Proximas
+
+- [ ] Interfaz web de administración
+- [ ] Soporte para más modelos IA
+- [ ] Exportación de workflows a código
+- [ ] Integración con más plataformas
+- [ ] Modo de voz en Telegram
+
+---
+
+**Hecho con ❤️ por la comunidad de n8n**

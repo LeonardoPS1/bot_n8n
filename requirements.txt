@@ -1,46 +1,66 @@
 # ============================================
-# Claudio Bot - Python Dependencies
+# Claudio Bot v4.6.1 - Python Dependencies
+# ============================================
+# Instalación: pip install -r requirements.txt
 # ============================================
 
 # Core Telegram Bot
 python-telegram-bot==21.0
 
 # ============================================
-# AI Providers (choose one or install all)
+# AI Providers - Multi-Provider Support
 # ============================================
 
-# Anthropic (Claude) - Primary provider
-anthropic==0.40.0
+# Anthropic Claude (Primary)
+anthropic>=0.40.0
 
-# OpenAI (for OpenAI, Qwen, DeepSeek - all use OpenAI-compatible API)
+# OpenAI (GPT-4, también compatible con Qwen, DeepSeek)
 openai>=1.0.0
 
-# Google Gemini
+# Google Gemini (soporta API nueva y antigua)
 google-generativeai>=0.8.0
 
 # ============================================
-# Server & API
+# Servidor API FastAPI
 # ============================================
 
-# FastAPI server
-fastapi==0.115.0
-uvicorn[standard]==0.32.0
+fastapi>=0.115.0
+uvicorn[standard]>=0.32.0
+pydantic>=2.9.0
 
-# HTTP client (google-genai requires >=0.28.1)
+# ============================================
+# Cliente HTTP
+# ============================================
+
+# httpx para llamadas async (requerido por google-genai >=0.28.1)
 httpx>=0.28.1
 
-# Data validation
-pydantic==2.9.2
-
-# ============================================
-# Configuration & Utilities
-# ============================================
-
-# Environment variables
-python-dotenv==1.0.0
-
-# Optional: For async operations
-asyncio==3.4.3
-
-# Optional: For additional HTTP features
+# requests para llamadas sync
 requests>=2.31.0
+
+# ============================================
+# Configuración y Utilidades
+# ============================================
+
+# Variables de entorno
+python-dotenv>=1.0.0
+
+# Async file operations (for .env updates)
+aiofiles>=23.0.0
+
+# ============================================
+# Opcional: Para desarrollo
+# ============================================
+
+# pytest>=8.0.0      # Para tests
+# black>=24.0.0       # Para formatear código
+# pylint>=3.0.0       # Para linting
+
+# ============================================
+# Notas de compatibilidad
+# ============================================
+#
+# - Python 3.9+ requerido
+# - Python 3.13+ recomendado
+# - Ollama no requiere dependencias Python adicionales
+# - Para Docker, ver docker-compose.yml

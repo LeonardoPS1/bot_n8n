@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
-Claudio Server - Multi-AI Provider Support
-Supports Anthropic, OpenAI, Gemini, Qwen, DeepSeek, Ollama, and multi-provider configurations
+Claudio Server - Multi-AI Provider Support with Dynamic Switching
+Supports Anthropic, OpenAI, Gemini 2.5/3.1, Qwen, DeepSeek, Ollama, and multi-provider configurations
+Version 4.6.1 - Complete Provider Configuration with Ollama Support
 """
 
 import os
@@ -9,6 +10,7 @@ import sys
 import json
 import logging
 import asyncio
+import signal
 import re
 from typing import Optional, Dict, Any, List, Union
 from datetime import datetime
@@ -34,10 +36,17 @@ except ImportError:
     OPENAI_AVAILABLE = False
 
 try:
-    import google.generativeai as genai
+    import google.genai as genai
     GEMINI_AVAILABLE = True
+    GEMINI_NEW_API = True
 except ImportError:
-    GEMINI_AVAILABLE = False
+    try:
+        import google.generativeai as genai
+        GEMINI_AVAILABLE = True
+        GEMINI_NEW_API = False
+    except ImportError:
+        GEMINI_AVAILABLE = False
+        GEMINI_NEW_API = False
 
 # Load environment variables
 load_dotenv()
@@ -62,8 +71,10 @@ from skills.n8n_other_skills import (
     CodePythonExpert
 )
 
-# Configure logging
-file_handler = logging.FileHandler('claudio_complete.log', encoding='utf-8')
+# Configure logging - use absolute path for systemd service
+LOG_DIR = Path(__file__).parent
+LOG_FILE = LOG_DIR / 'claudio_complete.log'
+file_handler = logging.FileHandler(str(LOG_FILE), encoding='utf-8')
 file_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
 
 console_handler = logging.StreamHandler()
@@ -86,7 +97,7 @@ ANTHROPIC_MODEL = os.getenv('ANTHROPIC_MODEL', 'claude-sonnet-4-20250514')
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
 OPENAI_MODEL = os.getenv('OPENAI_MODEL', 'gpt-4o')
 GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
-GEMINI_MODEL = os.getenv('GEMINI_MODEL', 'gemini-2.0-flash-exp')
+GEMINI_MODEL = os.getenv('GEMINI_MODEL', 'gemini-2.5-pro')
 QWEN_API_KEY = os.getenv('QWEN_API_KEY')
 QWEN_BASE_URL = os.getenv('QWEN_BASE_URL', 'https://dashscope.aliyuncs.com/compatible-mode/v1')
 QWEN_MODEL = os.getenv('QWEN_MODEL', 'qwen-plus')
@@ -100,14 +111,14 @@ OLLAMA_MODEL = os.getenv('OLLAMA_MODEL', 'llama3')
 CUSTOM_MODEL_NAME = os.getenv('CUSTOM_MODEL_NAME', '')
 CUSTOM_MODEL_API_KEY = os.getenv('CUSTOM_MODEL_API_KEY', '')
 CUSTOM_MODEL_BASE_URL = os.getenv('CUSTOM_MODEL_BASE_URL', '')
-CUSTOM_MODEL_PROVIDER = os.getenv('CUSTOM_MODEL_PROVIDER', 'openai')  # openai-compatible or anthropic
+CUSTOM_MODEL_PROVIDER = os.getenv('CUSTOM_MODEL_PROVIDER', 'openai')
 
 # Fallback configuration
 AUTO_FALLBACK = os.getenv('AUTO_FALLBACK', 'true').lower() == 'true'
 FALLBACK_ORDER = os.getenv('FALLBACK_ORDER', 'anthropic,openai,gemini,qwen,deepseek,ollama').split(',')
 
 # Notification bot configuration
-BOT_NOTIFICATION_URL = os.getenv('BOT_NOTIFICATION_URL', '')  # URL to notify bot
+BOT_NOTIFICATION_URL = os.getenv('BOT_NOTIFICATION_URL', '')
 ALLOWED_ADMIN_USERS = os.getenv('ALLOWED_ADMIN_USERS', '').split(',') if os.getenv('ALLOWED_ADMIN_USERS') else []
 
 # n8n Configuration
@@ -136,7 +147,7 @@ class AIProvider:
         """Send chat request and return response"""
         raise NotImplementedError
 
-    def is_available(self) -> bool:
+    async def is_available(self) -> bool:
         """Check if provider is available"""
         return bool(self.api_key)
 
@@ -162,7 +173,7 @@ class AnthropicProvider(AIProvider):
 
         return response.content[0].text
 
-    def is_available(self) -> bool:
+    async def is_available(self) -> bool:
         return ANTHROPIC_AVAILABLE and bool(self.api_key)
 
 
@@ -189,7 +200,7 @@ class OpenAIProvider(AIProvider):
 
         return response.choices[0].message.content
 
-    def is_available(self) -> bool:
+    async def is_available(self) -> bool:
         return OPENAI_AVAILABLE and bool(self.api_key)
 
 
@@ -232,47 +243,55 @@ class OllamaProvider(AIProvider):
 
 
 class GeminiProvider(AIProvider):
-    """Google Gemini AI provider"""
+    """Google Gemini AI provider - compatible API"""
 
     def __init__(self, api_key: str, model: str = 'gemini-2.0-flash-exp'):
         super().__init__(api_key, model)
+        self.use_new_api = False
+
         if GEMINI_AVAILABLE and api_key:
-            genai.configure(api_key=api_key)
-            self.client = genai.GenerativeModel(model)
+            try:
+                # Use the old/generativeai API (more stable)
+                import google.generativeai as genai_old
+                genai_old.configure(api_key=api_key)
+                self.client = genai_old.GenerativeModel(model)
+                self.use_new_api = False
+            except Exception as e:
+                logger.warning(f"Gemini initialization failed: {e}")
+                self.client = None
 
     async def chat(self, messages: List[Dict[str, str]], system_prompt: str) -> str:
         if not self.client:
             raise ValueError("Gemini client not initialized")
 
-        # Build conversation with system prompt
-        conversation = self.client.start_chat(history=[])
-
-        # Add system prompt as first message
-        full_prompt = f"System: {system_prompt}\n\n"
-
-        # Add conversation history
-        for msg in messages:
-            role = msg['role']
-            content = msg['content']
-            if role == 'user':
-                full_prompt += f"User: {content}\n"
-            elif role == 'assistant':
-                full_prompt += f"Assistant: {content}\n"
-
-        full_prompt += "Assistant:"
-
         try:
+            # Build prompt with system instruction
+            full_prompt = f"{system_prompt}\n\n"
+
+            for msg in messages:
+                role = msg['role']
+                content = msg['content']
+                if role == 'user':
+                    full_prompt += f"User: {content}\n"
+                elif role == 'assistant':
+                    full_prompt += f"Assistant: {content}\n"
+
+            full_prompt += "Assistant:"
+
+            # Generate response
             response = await asyncio.to_thread(
-                conversation.send_message,
+                self.client.generate_content,
                 full_prompt,
                 generation_config={"max_output_tokens": 4096}
             )
             return response.text
+
         except Exception as e:
+            logger.error(f"Gemini API error: {e}")
             raise ValueError(f"Gemini API error: {e}")
 
-    def is_available(self) -> bool:
-        return GEMINI_AVAILABLE and bool(self.api_key)
+    async def is_available(self) -> bool:
+        return GEMINI_AVAILABLE and bool(self.api_key) and self.client is not None
 
 
 class QwenProvider(AIProvider):
@@ -304,7 +323,7 @@ class QwenProvider(AIProvider):
         except Exception as e:
             raise ValueError(f"Qwen API error: {e}")
 
-    def is_available(self) -> bool:
+    async def is_available(self) -> bool:
         return OPENAI_AVAILABLE and bool(self.api_key)
 
 
@@ -337,7 +356,7 @@ class DeepSeekProvider(AIProvider):
         except Exception as e:
             raise ValueError(f"DeepSeek API error: {e}")
 
-    def is_available(self) -> bool:
+    async def is_available(self) -> bool:
         return OPENAI_AVAILABLE and bool(self.api_key)
 
 
@@ -348,7 +367,7 @@ class CustomProvider(AIProvider):
         super().__init__(api_key, model)
         self.name = name
         self.base_url = base_url
-        self.provider_type = provider_type  # 'openai' or 'anthropic'
+        self.provider_type = provider_type
 
         if provider_type == 'openai' and OPENAI_AVAILABLE and api_key:
             self.client = OpenAI(api_key=api_key, base_url=base_url)
@@ -387,31 +406,109 @@ class CustomProvider(AIProvider):
 
         raise ValueError(f"Unsupported provider type: {self.provider_type}")
 
-    def is_available(self) -> bool:
+    async def is_available(self) -> bool:
         return self.client is not None
 
     def get_name(self) -> str:
         return self.name
 
 
-class MultiProvider(AIProvider):
-    """Multi-provider fallback support with automatic model switching"""
+class DynamicMultiProvider(AIProvider):
+    """Dynamic multi-provider with runtime switching and automatic fallback"""
 
-    def __init__(self, providers: List[AIProvider], notification_callback=None):
-        self.providers = providers
-        self.api_key = "multi"
+    def __init__(self, notification_callback=None):
+        self.api_key = "dynamic"
         self.notification_callback = notification_callback
-        self.current_provider_index = 0
-        self.provider_history = []  # Track which providers were used
+        self.providers = {}  # name -> provider instance
+        self.current_provider = None
+        self.provider_order = []  # Priority order
+        self.failed_providers = {}  # Track failed providers with timestamps
+
+        # Load all available providers
+        self._load_providers()
+
+    def _load_providers(self):
+        """Load all configured providers"""
+        if ANTHROPIC_API_KEY:
+            self.providers['anthropic'] = AnthropicProvider(ANTHROPIC_API_KEY, ANTHROPIC_MODEL)
+            self.provider_order.append('anthropic')
+
+        if OPENAI_API_KEY:
+            self.providers['openai'] = OpenAIProvider(OPENAI_API_KEY, OPENAI_MODEL)
+            if 'openai' not in self.provider_order:
+                self.provider_order.append('openai')
+
+        if GEMINI_API_KEY:
+            self.providers['gemini'] = GeminiProvider(GEMINI_API_KEY, GEMINI_MODEL)
+            if 'gemini' not in self.provider_order:
+                self.provider_order.append('gemini')
+
+        if QWEN_API_KEY:
+            self.providers['qwen'] = QwenProvider(QWEN_API_KEY, QWEN_BASE_URL, QWEN_MODEL)
+            if 'qwen' not in self.provider_order:
+                self.provider_order.append('qwen')
+
+        if DEEPSEEK_API_KEY:
+            self.providers['deepseek'] = DeepSeekProvider(DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL, DEEPSEEK_MODEL)
+            if 'deepseek' not in self.provider_order:
+                self.provider_order.append('deepseek')
+
+        # Always add Ollama (will check availability dynamically)
+        self.providers['ollama'] = OllamaProvider(OLLAMA_BASE_URL, OLLAMA_MODEL)
+        if 'ollama' not in self.provider_order:
+            self.provider_order.append('ollama')
+
+        # Custom model
+        if CUSTOM_MODEL_NAME and CUSTOM_MODEL_API_KEY:
+            self.providers['custom'] = CustomProvider(
+                name=CUSTOM_MODEL_NAME,
+                api_key=CUSTOM_MODEL_API_KEY,
+                base_url=CUSTOM_MODEL_BASE_URL,
+                model=CUSTOM_MODEL_NAME,
+                provider_type=CUSTOM_MODEL_PROVIDER
+            )
+            if 'custom' not in self.provider_order:
+                self.provider_order.append('custom')
+
+        # Set initial provider based on FALLBACK_ORDER
+        if FALLBACK_ORDER:
+            for provider_name in FALLBACK_ORDER:
+                provider_name = provider_name.strip()
+                if provider_name in self.providers:
+                    self.current_provider = provider_name
+                    break
+
+        # Fallback to first available
+        if not self.current_provider and self.provider_order:
+            self.current_provider = self.provider_order[0]
+
+        logger.info(f"DynamicMultiProvider loaded {len(self.providers)} providers: {list(self.providers.keys())}")
+        logger.info(f"Current provider: {self.current_provider}")
 
     async def chat(self, messages: List[Dict[str, str]], system_prompt: str) -> str:
+        """Try current provider, fallback to others on failure"""
         last_error = None
 
-        for i, provider in enumerate(self.providers):
-            provider_name = provider.__class__.__name__.replace("Provider", "")
+        # Get ordered providers (respect failed ones)
+        available_providers = self._get_available_providers()
+
+        for provider_name in available_providers:
+            # Skip if recently failed
+            if provider_name in self.failed_providers:
+                fail_time = self.failed_providers[provider_name]
+                if datetime.now().timestamp() - fail_time < 300:  # 5 min cooldown
+                    logger.warning(f"Skipping {provider_name} (recently failed)")
+                    continue
+                else:
+                    # Remove from failed list
+                    del self.failed_providers[provider_name]
+
+            provider = self.providers.get(provider_name)
+            if not provider:
+                continue
 
             try:
-                # Check if provider is available
+                # Check availability
                 if not await provider.is_available():
                     logger.warning(f"Provider {provider_name} is not available")
                     continue
@@ -419,15 +516,16 @@ class MultiProvider(AIProvider):
                 # Try to get response
                 response = await provider.chat(messages, system_prompt)
 
-                # Record successful provider
-                if i != self.current_provider_index:
-                    old_provider = self.providers[self.current_provider_index].__class__.__name__.replace("Provider", "")
-                    self.current_provider_index = i
+                # Success - update current if changed
+                if provider_name != self.current_provider:
+                    old = self.current_provider
+                    self.current_provider = provider_name
+                    logger.info(f"Switched provider: {old} -> {provider_name}")
 
                     if self.notification_callback:
                         await self.notification_callback(
-                            message=f"🔄 Modelo cambiado: {old_provider} → {provider_name}",
-                            type="model_switch"
+                            message=f"🔄 Modelo cambiado: {old} → {provider_name}",
+                            notification_type="model_switch"
                         )
 
                 return response
@@ -437,13 +535,14 @@ class MultiProvider(AIProvider):
                 error_msg = str(e)
 
                 # Check for quota/token errors
-                if any(keyword in error_msg.lower() for keyword in ['quota', 'limit', 'token', 'insufficient', 'rate']):
+                if any(keyword in error_msg.lower() for keyword in ['quota', 'limit', 'token', 'insufficient', 'rate', 'credit']):
                     logger.warning(f"Provider {provider_name} quota error: {e}")
+                    self.failed_providers[provider_name] = datetime.now().timestamp()
 
                     if self.notification_callback:
                         await self.notification_callback(
                             message=f"⚠️ Sin cuota en {provider_name}, cambiando de modelo...",
-                            type="quota_error"
+                            notification_type="quota_error"
                         )
 
                     # Try next provider
@@ -452,46 +551,106 @@ class MultiProvider(AIProvider):
                     logger.error(f"Provider {provider_name} error: {e}")
                     continue
 
+        # All providers failed
         if last_error:
-            # All providers failed
             if self.notification_callback:
                 await self.notification_callback(
                     message=f"❌ Todos los modelos fallaron. Último error: {str(last_error)}",
-                    type="all_providers_failed"
+                    notification_type="all_providers_failed"
                 )
             raise last_error
 
         raise ValueError("No AI providers available")
 
+    def _get_available_providers(self) -> List[str]:
+        """Get ordered list of providers to try"""
+        # If AUTO_FALLBACK is enabled, try all in configured order
+        if AUTO_FALLBACK:
+            ordered = []
+            for name in FALLBACK_ORDER:
+                name = name.strip()
+                if name in self.providers and name not in ordered:
+                    ordered.append(name)
+            # Add any remaining providers
+            for name in self.providers:
+                if name not in ordered:
+                    ordered.append(name)
+            return ordered
+        else:
+            # Only try current provider
+            return [self.current_provider] if self.current_provider else []
+
     async def is_available(self) -> bool:
-        return any(await p.is_available() for p in self.providers)
+        """Check if any provider is available"""
+        for provider in self.providers.values():
+            try:
+                if await provider.is_available():
+                    return True
+            except:
+                continue
+        return False
+
+    def force_switch(self, provider_name: str) -> bool:
+        """Force switch to a specific provider"""
+        provider_name = provider_name.lower()
+        if provider_name in self.providers:
+            old = self.current_provider
+            self.current_provider = provider_name
+            # Clear failed status
+            if provider_name in self.failed_providers:
+                del self.failed_providers[provider_name]
+            logger.info(f"Force switched provider: {old} -> {provider_name}")
+            return True
+        return False
 
     def add_custom_provider(self, provider: AIProvider):
-        """Add a custom provider to the list"""
-        self.providers.append(provider)
-        logger.info(f"Added custom provider: {provider.__class__.__name__}")
+        """Add a custom provider dynamically"""
+        if hasattr(provider, 'name'):
+            name = provider.name
+        else:
+            name = provider.__class__.__name__.replace("Provider", "").lower()
+
+        self.providers[name] = provider
+        if name not in self.provider_order:
+            self.provider_order.append(name)
+        logger.info(f"Added custom provider: {name}")
 
     def get_available_providers(self) -> List[str]:
-        """Get list of available provider names"""
-        return [p.__class__.__name__.replace("Provider", "") for p in self.providers]
+        """Get list of configured provider names"""
+        return list(self.providers.keys())
 
     def get_current_provider(self) -> str:
         """Get the currently active provider name"""
-        if self.current_provider_index < len(self.providers):
-            return self.providers[self.current_provider_index].__class__.__name__.replace("Provider", "")
-        return "Unknown"
+        return self.current_provider or "Unknown"
 
+    def get_current_model(self) -> str:
+        """Get current model name"""
+        provider = self.providers.get(self.current_provider)
+        if provider:
+            return getattr(provider, 'model', 'N/A')
+        return 'N/A'
 
-# ============================================
-# INITIALIZE AI PROVIDER
-# ============================================
+    def get_provider_info(self) -> Dict[str, Any]:
+        """Get detailed info about all providers"""
+        info = {}
+        for name, provider in self.providers.items():
+            info[name] = {
+                'type': provider.__class__.__name__,
+                'model': getattr(provider, 'model', 'N/A'),
+                'configured': bool(getattr(provider, 'api_key', True) or getattr(provider, 'client', None)),
+                'current': (name == self.current_provider)
+            }
+            if hasattr(provider, 'base_url'):
+                info[name]['base_url'] = provider.base_url
+        return info
+
 
 # ============================================
 # NOTIFICATION SYSTEM
 # ============================================
 
 async def send_bot_notification(message: str, notification_type: str = "info"):
-    """Send notification to the bot"""
+    """Send notification to Telegram bot"""
     if not BOT_NOTIFICATION_URL:
         return
 
@@ -510,16 +669,19 @@ async def send_bot_notification(message: str, notification_type: str = "info"):
         logger.warning(f"Failed to send bot notification: {e}")
 
 
-def get_ai_provider() -> AIProvider:
-    """Get configured AI provider with fallback support"""
+# ============================================
+# INITIALIZE AI PROVIDER
+# ============================================
 
-    def create_notification_callback():
-        """Create a callback for notifications"""
-        if AUTO_FALLBACK:
-            return send_bot_notification
-        return None
+def create_ai_provider() -> AIProvider:
+    """Create the appropriate AI provider"""
 
-    if AI_PROVIDER == 'anthropic':
+    if AI_PROVIDER == 'multi':
+        # Use new dynamic multi-provider
+        return DynamicMultiProvider(notification_callback=send_bot_notification)
+
+    # Single provider modes (for backward compatibility)
+    elif AI_PROVIDER == 'anthropic':
         return AnthropicProvider(
             api_key=ANTHROPIC_API_KEY or '',
             model=ANTHROPIC_MODEL
@@ -562,65 +724,23 @@ def get_ai_provider() -> AIProvider:
             name=CUSTOM_MODEL_NAME,
             api_key=CUSTOM_MODEL_API_KEY,
             base_url=CUSTOM_MODEL_BASE_URL,
-            model=CUSTOM_MODEL_NAME,  # Use name as model
+            model=CUSTOM_MODEL_NAME,
             provider_type=CUSTOM_MODEL_PROVIDER
         )
 
-    elif AI_PROVIDER == 'multi':
-        providers = []
-
-        # Add providers in configured order
-        for provider_name in FALLBACK_ORDER:
-            provider_name = provider_name.strip()
-
-            if provider_name == 'anthropic' and ANTHROPIC_API_KEY:
-                providers.append(AnthropicProvider(ANTHROPIC_API_KEY, ANTHROPIC_MODEL))
-
-            elif provider_name == 'openai' and OPENAI_API_KEY:
-                providers.append(OpenAIProvider(OPENAI_API_KEY, OPENAI_MODEL))
-
-            elif provider_name == 'gemini' and GEMINI_API_KEY:
-                providers.append(GeminiProvider(GEMINI_API_KEY, GEMINI_MODEL))
-
-            elif provider_name == 'qwen' and QWEN_API_KEY:
-                providers.append(QwenProvider(QWEN_API_KEY, QWEN_BASE_URL, QWEN_MODEL))
-
-            elif provider_name == 'deepseek' and DEEPSEEK_API_KEY:
-                providers.append(DeepSeekProvider(DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL, DEEPSEEK_MODEL))
-
-            elif provider_name == 'ollama':
-                providers.append(OllamaProvider(OLLAMA_BASE_URL, OLLAMA_MODEL))
-
-        # Add custom provider if configured
-        if CUSTOM_MODEL_NAME and CUSTOM_MODEL_API_KEY:
-            providers.append(CustomProvider(
-                name=CUSTOM_MODEL_NAME,
-                api_key=CUSTOM_MODEL_API_KEY,
-                base_url=CUSTOM_MODEL_BASE_URL,
-                model=CUSTOM_MODEL_NAME,
-                provider_type=CUSTOM_MODEL_PROVIDER
-            ))
-
-        if not providers:
-            logger.warning("No providers configured for multi-provider mode, falling back to Anthropic")
-            return AnthropicProvider(ANTHROPIC_API_KEY or '', ANTHROPIC_MODEL)
-
-        # Return MultiProvider with notification callback
-        return MultiProvider(providers, notification_callback=create_notification_callback())
-
     else:
-        logger.warning(f"Unknown provider '{AI_PROVIDER}', falling back to Anthropic")
-        return AnthropicProvider(ANTHROPIC_API_KEY or '', ANTHROPIC_MODEL)
+        logger.warning(f"Unknown provider '{AI_PROVIDER}', falling back to dynamic multi-provider")
+        return DynamicMultiProvider(notification_callback=send_bot_notification)
 
 
 # Initialize AI provider
-ai_provider = get_ai_provider()
+ai_provider = create_ai_provider()
 
 # ============================================
 # SYSTEM PROMPT
 # ============================================
 
-CLADIO_COMPLETE_PROMPT = """You are Claudio, an expert n8n workflow automation specialist with COMPLETE ACCESS to n8n.
+CLAUDIO_COMPLETE_PROMPT = """You are Claudio, an expert n8n workflow automation specialist with COMPLETE ACCESS to n8n.
 
 ## YOUR CAPABILITIES
 
@@ -960,7 +1080,7 @@ n8n_tools = N8NMCPTools()
 app = FastAPI(
     title="Claudio - Multi-AI n8n Assistant",
     description="Expert n8n workflow automation with multi-AI provider support",
-    version="4.2.0"
+    version="4.6.0"
 )
 
 app.add_middleware(
@@ -991,12 +1111,18 @@ class ChatResponse(BaseModel):
 @app.get("/")
 async def root():
     """Root endpoint"""
+    current_provider = ai_provider.get_current_provider() if isinstance(ai_provider, DynamicMultiProvider) else AI_PROVIDER
+    current_model = ai_provider.get_current_model() if isinstance(ai_provider, DynamicMultiProvider) else getattr(ai_provider, 'model', 'N/A')
+
     return {
         "service": "Claudio",
-        "version": "4.2.0",
+        "version": "4.5.0",
         "ai_provider": AI_PROVIDER,
+        "current_provider": current_provider,
+        "current_model": current_model,
         "features": [
-            "Multi-AI provider support (Anthropic, OpenAI, Gemini, Qwen, DeepSeek, Ollama)",
+            "Dynamic multi-AI provider support (switch without restart)",
+            "Anthropic, OpenAI, Gemini, Qwen, DeepSeek, Ollama",
             "Real n8n API access",
             "1396 n8n nodes database",
             "2709+ workflow templates",
@@ -1021,10 +1147,15 @@ async def health_check():
     n8n_health = await n8n_tools.list_workflows()
     ai_available = await ai_provider.is_available()
 
+    current_provider = ai_provider.get_current_provider() if isinstance(ai_provider, DynamicMultiProvider) else AI_PROVIDER
+    current_model = ai_provider.get_current_model() if isinstance(ai_provider, DynamicMultiProvider) else getattr(ai_provider, 'model', 'N/A')
+
     return {
         "status": "healthy",
         "timestamp": datetime.now().isoformat(),
         "ai_provider": AI_PROVIDER,
+        "current_provider": current_provider,
+        "current_model": current_model,
         "ai_available": ai_available,
         "n8n": {
             "connected": not isinstance(n8n_health, dict) or "error" not in n8n_health,
@@ -1069,9 +1200,28 @@ async def chat(request: ChatRequest):
             enhanced_message = user_message
 
         # Call AI provider
+        # Use globals() to access CLAUDIO_COMPLETE_PROMPT
+        PROMPT = globals().get('CLAUDIO_COMPLETE_PROMPT', 'You are Claudio, an n8n expert.')
+
+        # Add tool context to the user message so AI can use it
+        final_message = enhanced_message
+        if tool_context:
+            context_info = "\\n\\n[Tool Results]\\n"
+            if "workflows" in tool_context:
+                wf = tool_context["workflows"]
+                context_info += f"- You have access to {wf.get('count', 0)} workflows\\n"
+            if "nodes" in tool_context:
+                nodes = tool_context["nodes"]
+                context_info += f"- Found {len(nodes) if isinstance(nodes, list) else 'several'} nodes\\n"
+            context_info += f"\\nFull context: {json.dumps(tool_context, ensure_ascii=False)}\\n"
+            final_message = enhanced_message + context_info
+
+        # Update the last message with tool context
+        conversation_history[user_id][-1]["content"] = final_message
+
         response_text = await ai_provider.chat(
             messages=conversation_history[user_id],
-            system_prompt=CLADIO_COMPLETE_PROMPT
+            system_prompt=PROMPT
         )
 
         # Add to history
@@ -1084,11 +1234,14 @@ async def chat(request: ChatRequest):
         if len(conversation_history[user_id]) > 20:
             conversation_history[user_id] = conversation_history[user_id][-20:]
 
+        current_provider = ai_provider.get_current_provider() if isinstance(ai_provider, DynamicMultiProvider) else AI_PROVIDER
+        current_model = ai_provider.get_current_model() if isinstance(ai_provider, DynamicMultiProvider) else getattr(ai_provider, 'model', 'N/A')
+
         return ChatResponse(
             response=response_text,
             timestamp=datetime.now().isoformat(),
-            model=ai_provider.model,
-            provider=AI_PROVIDER,
+            model=current_model,
+            provider=current_provider,
             tools_used=tools_used,
             context=tool_context
         )
@@ -1099,7 +1252,7 @@ async def chat(request: ChatRequest):
 
 
 async def analyze_and_use_tools(message: str) -> Dict[str, Any]:
-    """Analyze message and use appropriate tools"""
+    """Analyze message and use appropriate tools - n8n errors are non-fatal"""
     context = {}
     message_lower = message.lower()
 
@@ -1112,39 +1265,83 @@ async def analyze_and_use_tools(message: str) -> Dict[str, Any]:
                     "count": len(workflows) if isinstance(workflows, list) else "unknown",
                     "recent": workflows[:5] if isinstance(workflows, list) else list(workflows.values())[:5] if isinstance(workflows, dict) else []
                 }
-        except:
-            pass
+        except Exception as e:
+            logger.warning(f"Failed to fetch workflows: {e}")
+            context["workflows_error"] = "n8n service unavailable - workflows cannot be listed"
 
     # Search nodes
     if any(word in message_lower for word in ["nodo", "node", "buscar", "search"]):
-        query = message
-        for skip in ["nodo", "node", "buscar", "search", "find"]:
-            query = query.replace(skip, "").strip()
-        nodes = await n8n_tools.search_nodes(query=query)
-        if nodes:
-            context["nodes"] = {
-                "query": query,
-                "found": len(nodes),
-                "results": nodes[:10]
-            }
+        try:
+            query = message
+            for skip in ["nodo", "node", "buscar", "search", "find"]:
+                query = query.replace(skip, "").strip()
+            nodes = await n8n_tools.search_nodes(query=query)
+            if nodes:
+                context["nodes"] = {
+                    "query": query,
+                    "found": len(nodes),
+                    "results": nodes[:10]
+                }
+        except Exception as e:
+            logger.warning(f"Failed to search nodes: {e}")
+            # Use offline database as fallback
+            try:
+                query = message
+                for skip in ["nodo", "node", "buscar", "search", "find"]:
+                    query = query.replace(skip, "").strip()
+                # Search in local database
+                nodes = []
+                query_lower = query.lower()
+                for node_id, node_info in {**N8N_NODES_CORE, **N8N_NODES_COMMUNITY}.items():
+                    searchable = f"{node_id} {str(node_info)}".lower()
+                    if query_lower in searchable:
+                        nodes.append({"id": node_id, "info": node_info})
+                if nodes:
+                    context["nodes"] = {
+                        "query": query,
+                        "found": len(nodes),
+                        "results": nodes[:10],
+                        "note": "Using offline database"
+                    }
+            except Exception as e2:
+                logger.error(f"Offline search also failed: {e2}")
 
     # Search templates
     if any(word in message_lower for word in ["template", "ejemplo", "example", "crear"]):
-        templates = await n8n_tools.search_templates(query=message)
-        if templates:
-            context["templates"] = templates[:8]
+        try:
+            templates = await n8n_tools.search_templates(query=message)
+            if templates:
+                context["templates"] = templates[:8]
+        except Exception as e:
+            logger.warning(f"Failed to search templates: {e}")
+            # Use offline database as fallback
+            try:
+                templates = []
+                query_lower = message.lower()
+                for template_id, template_info in N8N_TEMPLATES.items():
+                    searchable = f"{template_id} {str(template_info)}".lower()
+                    if query_lower in searchable:
+                        templates.append(template_info)
+                if templates:
+                    context["templates"] = templates[:8]
+                    context["templates_note"] = "Using offline database"
+            except Exception as e2:
+                logger.error(f"Offline template search failed: {e2}")
 
     # Expression validation
     if any(word in message_lower for word in ["expresión", "expression", "$json", "$node", "validar"]):
-        # Extract potential expression
-        expr_match = re.search(r'[\$][\w\[\."\{\} ]+', message)
-        if expr_match:
-            expr = expr_match.group()
-            validation = await n8n_tools.validate_expression(expr, context=message)
-            context["expression_validation"] = {
-                "expression": expr,
-                "validation": validation
-            }
+        try:
+            # Extract potential expression
+            expr_match = re.search(r'[\$][\w\[\."\{\} ]+', message)
+            if expr_match:
+                expr = expr_match.group()
+                validation = await n8n_tools.validate_expression(expr, context=message)
+                context["expression_validation"] = {
+                    "expression": expr,
+                    "validation": validation
+                }
+        except Exception as e:
+            logger.warning(f"Failed to validate expression: {e}")
 
     return context
 
@@ -1152,6 +1349,8 @@ async def analyze_and_use_tools(message: str) -> Dict[str, Any]:
 @app.get("/api/tools")
 async def list_tools():
     """List available tools and skills"""
+    current_provider = ai_provider.get_current_provider() if isinstance(ai_provider, DynamicMultiProvider) else AI_PROVIDER
+
     return {
         "n8n_api": ["list_workflows", "get_workflow", "create_workflow", "update_workflow", "activate_workflow"],
         "database": ["search_nodes", "get_node", "validate_node", "search_templates", "validate_expression"],
@@ -1204,7 +1403,7 @@ async def list_tools():
             "templates_total": len(n8n_tools.templates),
             "skills_total": 7,
             "ai_provider": AI_PROVIDER,
-            "ai_model": ai_provider.model
+            "current_provider": current_provider
         }
     }
 
@@ -1317,18 +1516,17 @@ async def get_skill_details(skill_name: str):
 
 
 # ============================================
-# ADMIN ENDPOINTS
+# ADMIN ENDPOINTS - DYNAMIC MODEL SWITCHING
 # ============================================
 
 class AdminConfig(BaseModel):
     user_id: int
-    admin_key: Optional[str] = None  # Additional security
+    admin_key: Optional[str] = None
 
 
 class ModelSwitchRequest(BaseModel):
     user_id: int
     new_provider: Optional[str] = None
-    new_model: Optional[str] = None
     admin_key: Optional[str] = None
 
 
@@ -1337,14 +1535,14 @@ class CustomModelRequest(BaseModel):
     name: str
     api_key: str
     base_url: str
-    provider_type: str = "openai"  # or "anthropic"
+    provider_type: str = "openai"
     admin_key: Optional[str] = None
 
 
 def is_admin_user(user_id: int) -> bool:
     """Check if user is admin"""
     if not ALLOWED_ADMIN_USERS:
-        return False  # No admin users configured
+        return False
     return str(user_id) in ALLOWED_ADMIN_USERS or "*" in ALLOWED_ADMIN_USERS
 
 
@@ -1354,71 +1552,72 @@ async def admin_status(request: AdminConfig):
     if not is_admin_user(request.user_id):
         raise HTTPException(status_code=403, detail="Not authorized as admin")
 
-    current_provider = AI_PROVIDER
-    current_model = ai_provider.model if hasattr(ai_provider, 'model') else "N/A"
-
-    if isinstance(ai_provider, MultiProvider):
-        available = ai_provider.get_available_providers()
-        current_provider = ai_provider.get_current_provider()
+    if isinstance(ai_provider, DynamicMultiProvider):
+        return {
+            "current_provider": ai_provider.get_current_provider(),
+            "current_model": ai_provider.get_current_model(),
+            "available_providers": ai_provider.get_available_providers(),
+            "auto_fallback": AUTO_FALLBACK,
+            "fallback_order": FALLBACK_ORDER,
+            "providers_info": ai_provider.get_provider_info(),
+            "mode": "dynamic-multi"
+        }
     else:
-        available = [current_provider]
-
-    return {
-        "current_provider": current_provider,
-        "current_model": current_model,
-        "available_providers": available,
-        "auto_fallback": AUTO_FALLBACK,
-        "fallback_order": FALLBACK_ORDER,
-        "custom_model": {
-            "name": CUSTOM_MODEL_NAME,
-            "configured": bool(CUSTOM_MODEL_API_KEY)
-        } if CUSTOM_MODEL_NAME else None
-    }
+        return {
+            "current_provider": AI_PROVIDER,
+            "current_model": getattr(ai_provider, 'model', 'N/A'),
+            "available_providers": [AI_PROVIDER],
+            "auto_fallback": AUTO_FALLBACK,
+            "mode": "single"
+        }
 
 
 @app.post("/api/admin/switch-model")
 async def switch_model(request: ModelSwitchRequest):
-    """Switch to a different model/provider"""
+    """Dynamically switch to a different model/provider WITHOUT RESTART"""
     if not is_admin_user(request.user_id):
         raise HTTPException(status_code=403, detail="Not authorized as admin")
 
     global ai_provider
 
-    old_provider = ai_provider.__class__.__name__ if not isinstance(ai_provider, MultiProvider) else ai_provider.get_current_provider()
-
-    try:
+    if isinstance(ai_provider, DynamicMultiProvider):
+        # Dynamic switching available!
         if request.new_provider:
-            # Switch to different provider
-            new_provider = get_ai_provider()
-            # This would require restart in production, so we return instructions
-            return {
-                "message": f"Para cambiar a {request.new_provider}, modifica la variable AI_PROVIDER en .env y reinicia el servidor",
-                "requires_restart": True,
-                "current_provider": old_provider,
-                "requested_provider": request.new_provider
-            }
+            old_provider = ai_provider.get_current_provider()
 
-        elif request.new_model and isinstance(ai_provider, AnthropicProvider):
-            # Can update Anthropic model without restart
-            from anthropic import Anthropic
-            ai_provider = AnthropicProvider(api_key=ANTHROPIC_API_KEY, model=request.new_model)
+            if ai_provider.force_switch(request.new_provider):
+                new_provider = ai_provider.get_current_provider()
 
-            await send_bot_notification(
-                f"🔄 Modelo Anthropic cambiado a {request.new_model}",
-                "model_changed"
-            )
+                await send_bot_notification(
+                    f"🔄 Modelo cambiado: {old_provider} → {new_provider}",
+                    "model_changed"
+                )
 
-            return {
-                "message": f"Modelo cambiado a {request.new_model}",
-                "old_model": ANTHROPIC_MODEL,
-                "new_model": request.new_model
-            }
-
+                return {
+                    "message": f"✅ Modelo cambiado exitosamente",
+                    "old_provider": old_provider,
+                    "new_provider": new_provider,
+                    "requires_restart": False
+                }
+            else:
+                available = ai_provider.get_available_providers()
+                return {
+                    "message": f"❌ Proveedor '{request.new_provider}' no disponible",
+                    "available_providers": available,
+                    "requires_restart": False
+                }
         else:
-            raise HTTPException(status_code=400, detail="Invalid request")
-
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+            return {
+                "message": "❌ Especifica el proveedor al que deseas cambiar",
+                "available_providers": ai_provider.get_available_providers()
+            }
+    else:
+        # Single provider mode - restart required
+        return {
+            "message": f"⚠️ Modo single-provider activo. Para cambiar dinámicamente, activa AI_PROVIDER=multi en .env y reinicia",
+            "requires_restart": True,
+            "current_mode": AI_PROVIDER
+        }
 
 
 @app.post("/api/admin/add-custom-model")
@@ -1427,37 +1626,33 @@ async def add_custom_model(request: CustomModelRequest):
     if not is_admin_user(request.user_id):
         raise HTTPException(status_code=403, detail="Not authorized as admin")
 
-    try:
-        # Add custom provider to multi-provider if active
-        if isinstance(ai_provider, MultiProvider):
-            custom_provider = CustomProvider(
-                name=request.name,
-                api_key=request.api_key,
-                base_url=request.base_url,
-                model=request.name,
-                provider_type=request.provider_type
-            )
+    if isinstance(ai_provider, DynamicMultiProvider):
+        custom_provider = CustomProvider(
+            name=request.name,
+            api_key=request.api_key,
+            base_url=request.base_url,
+            model=request.name,
+            provider_type=request.provider_type
+        )
 
-            ai_provider.add_custom_provider(custom_provider)
+        ai_provider.add_custom_provider(custom_provider)
 
-            await send_bot_notification(
-                f"✅ Modelo custom agregado: {request.name}",
-                "model_added"
-            )
+        await send_bot_notification(
+            f"✅ Modelo custom agregado: {request.name}",
+            "model_added"
+        )
 
-            return {
-                "message": f"Modelo custom '{request.name}' agregado exitosamente",
-                "provider_type": request.provider_type,
-                "available_providers": ai_provider.get_available_providers()
-            }
-        else:
-            return {
-                "message": "El modo multi-provider no está activo. Activa AI_PROVIDER=multi en .env y reinicia para agregar modelos custom",
-                "requires_multi_provider": True
-            }
-
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        return {
+            "message": f"Modelo custom '{request.name}' agregado exitosamente",
+            "provider_type": request.provider_type,
+            "available_providers": ai_provider.get_available_providers(),
+            "auto_switch_available": True
+        }
+    else:
+        return {
+            "message": "El modo dinámico no está activo. Activa AI_PROVIDER=multi en .env y reinicia",
+            "requires_restart": True
+        }
 
 
 @app.post("/api/admin/list-models")
@@ -1466,58 +1661,49 @@ async def list_models(request: AdminConfig):
     if not is_admin_user(request.user_id):
         raise HTTPException(status_code=403, detail="Not authorized as admin")
 
-    providers = {
-        "anthropic": {
-            "name": "Anthropic Claude",
-            "models": ["claude-sonnet-4-20250514", "claude-3-5-sonnet-20241022", "claude-3-haiku-20240307"],
-            "configured": bool(ANTHROPIC_API_KEY),
-            "current_model": ANTHROPIC_MODEL if ANTHROPIC_API_KEY else None
-        },
-        "openai": {
-            "name": "OpenAI",
-            "models": ["gpt-4o", "gpt-4-turbo", "gpt-3.5-turbo"],
-            "configured": bool(OPENAI_API_KEY),
-            "current_model": OPENAI_MODEL if OPENAI_API_KEY else None
-        },
-        "gemini": {
-            "name": "Google Gemini",
-            "models": ["gemini-2.0-flash-exp", "gemini-1.5-pro", "gemini-1.5-flash"],
-            "configured": bool(GEMINI_API_KEY),
-            "current_model": GEMINI_MODEL if GEMINI_API_KEY else None
-        },
-        "qwen": {
-            "name": "Alibaba Qwen",
-            "models": ["qwen-plus", "qwen-turbo", "qwen-max"],
-            "configured": bool(QWEN_API_KEY),
-            "current_model": QWEN_MODEL if QWEN_API_KEY else None
-        },
-        "deepseek": {
-            "name": "DeepSeek",
-            "models": ["deepseek-chat", "deepseek-coder"],
-            "configured": bool(DEEPSEEK_API_KEY),
-            "current_model": DEEPSEEK_MODEL if DEEPSEEK_API_KEY else None
-        },
-        "ollama": {
-            "name": "Ollama (Local)",
-            "models": ["llama3", "llama3:70b", "mistral", "codellama"],
-            "configured": True,  # Ollama can be checked
-            "base_url": OLLAMA_BASE_URL,
-            "current_model": OLLAMA_MODEL
-        },
-        "custom": {
-            "name": "Custom Model",
-            "configured": bool(CUSTOM_MODEL_API_KEY),
-            "name": CUSTOM_MODEL_NAME if CUSTOM_MODEL_API_KEY else None,
-            "provider_type": CUSTOM_MODEL_PROVIDER if CUSTOM_MODEL_API_KEY else None
+    if isinstance(ai_provider, DynamicMultiProvider):
+        return {
+            "providers": ai_provider.get_provider_info(),
+            "current_provider": ai_provider.get_current_provider(),
+            "current_model": ai_provider.get_current_model(),
+            "auto_fallback": AUTO_FALLBACK,
+            "fallback_order": FALLBACK_ORDER,
+            "mode": "dynamic-multi"
         }
-    }
+    else:
+        providers = {
+            "anthropic": {
+                "configured": bool(ANTHROPIC_API_KEY),
+                "model": ANTHROPIC_MODEL
+            },
+            "openai": {
+                "configured": bool(OPENAI_API_KEY),
+                "model": OPENAI_MODEL
+            },
+            "gemini": {
+                "configured": bool(GEMINI_API_KEY),
+                "model": GEMINI_MODEL
+            },
+            "qwen": {
+                "configured": bool(QWEN_API_KEY),
+                "model": QWEN_MODEL
+            },
+            "deepseek": {
+                "configured": bool(DEEPSEEK_API_KEY),
+                "model": DEEPSEEK_MODEL
+            },
+            "ollama": {
+                "configured": True,
+                "model": OLLAMA_MODEL
+            }
+        }
 
-    return {
-        "providers": providers,
-        "current_mode": AI_PROVIDER,
-        "auto_fallback": AUTO_FALLBACK,
-        "fallback_order": FALLBACK_ORDER
-    }
+        return {
+            "providers": providers,
+            "current_provider": AI_PROVIDER,
+            "current_model": getattr(ai_provider, 'model', 'N/A'),
+            "mode": "single"
+        }
 
 
 @app.post("/api/admin/test-model")
@@ -1529,29 +1715,61 @@ async def test_model(request: AdminConfig):
     try:
         is_avail = await ai_provider.is_available()
         return {
-            "provider": AI_PROVIDER,
-            "model": ai_provider.model,
+            "provider": ai_provider.get_current_provider() if isinstance(ai_provider, DynamicMultiProvider) else AI_PROVIDER,
+            "model": ai_provider.get_current_model() if isinstance(ai_provider, DynamicMultiProvider) else getattr(ai_provider, 'model', 'N/A'),
             "available": is_avail,
             "status": "OK" if is_avail else "NOT_AVAILABLE"
         }
     except Exception as e:
         return {
             "provider": AI_PROVIDER,
-            "model": ai_provider.model,
+            "model": getattr(ai_provider, 'model', 'N/A'),
             "available": False,
             "error": str(e)
         }
 
 
+@app.delete("/api/history/{user_id}")
+async def clear_history(user_id: int):
+    """Clear conversation history for a user"""
+    if user_id in conversation_history:
+        del conversation_history[user_id]
+        return {"status": "cleared", "user_id": user_id}
+    return {"status": "no_history", "user_id": user_id}
+
+
+@app.post("/api/admin/restart")
+async def restart_server():
+    """Restart the server to load new configuration"""
+    # This endpoint triggers a graceful restart
+    # The actual restart is handled by systemd's auto-restart
+    logger.info("Restart requested via API - triggering graceful shutdown...")
+
+    # Give time for response to be sent
+    async def delayed_shutdown():
+        import asyncio
+        await asyncio.sleep(1)
+        logger.info("Shutting down for restart...")
+        # Systemd will auto-restart because of Restart=always
+        import signal
+        import os
+        os.kill(os.getpid(), signal.SIGTERM)
+
+    # Start the delayed shutdown
+    asyncio.create_task(delayed_shutdown())
+
+    return {
+        "status": "restarting",
+        "message": "Server is restarting. This will take a few seconds..."
+    }
+
+
 @app.post("/api/notify")
 async def notify_bot(notification: Dict[str, str]):
     """Endpoint to receive notifications from the server"""
-    """This is called by the server to send notifications to the bot"""
     message = notification.get("message", "")
     notification_type = notification.get("type", "info")
 
-    # In a real implementation, this would send to Telegram
-    # For now, we just log it
     logger.info(f"Notification to bot [{notification_type}]: {message}")
 
     return {
@@ -1566,14 +1784,21 @@ def main():
     logger.info("🚀 Claudio starting...")
     logger.info(f"📡 Port: {PORT}")
     logger.info(f"🤖 AI Provider: {AI_PROVIDER}")
-    logger.info(f"🧠 AI Model: {ai_provider.model}")
+    logger.info(f"🧠 Dynamic Mode: {isinstance(ai_provider, DynamicMultiProvider)}")
+    if isinstance(ai_provider, DynamicMultiProvider):
+        logger.info(f"🔄 Current Provider: {ai_provider.get_current_provider()}")
+        logger.info(f"🧠 Current Model: {ai_provider.get_current_model()}")
+        logger.info(f"📊 Available Providers: {ai_provider.get_available_providers()}")
+    else:
+        logger.info(f"🧠 AI Model: {ai_provider.model}")
     logger.info(f"🔌 n8n: {N8N_INSTANCE_URL}")
     logger.info(f"📊 Nodes: {len(n8n_tools.nodes)}")
     logger.info(f"📋 Templates: {len(n8n_tools.templates)}")
+    logger.info(f"🔄 Auto-Fallback: {AUTO_FALLBACK}")
 
     # Check AI provider availability
-    if not ai_provider.api_key or ai_provider.api_key == "multi":
-        logger.warning("⚠️  AI provider may not be configured properly")
+    if not ai_provider.api_key or ai_provider.api_key == "dynamic":
+        logger.info("🔧 Using dynamic multi-provider mode")
 
     uvicorn.run(app, host="0.0.0.0", port=PORT, log_level="info")
 

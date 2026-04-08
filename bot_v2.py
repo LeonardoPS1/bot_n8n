@@ -3,12 +3,15 @@
 Telegram Bot powered by Claudio (Claude Code with n8n-MCP)
 Connects to Claudio Server for n8n workflow expertise
 Deploy on VPS for 24/7 availability
+Version 4.6.1 - Complete Provider Configuration with Ollama Support
 """
 
 import os
 import logging
 import httpx
-from typing import Optional
+import re
+from typing import Optional, Dict
+from pathlib import Path
 from telegram import Update
 from telegram.ext import (
     Application,
@@ -16,14 +19,17 @@ from telegram.ext import (
     MessageHandler,
     filters,
     ContextTypes,
+    ConversationHandler,
 )
 from dotenv import load_dotenv
 
 # Load environment variables from .env file
 load_dotenv()
 
-# Configure logging (UTF-8 for file, ASCII-safe for console)
-file_handler = logging.FileHandler('bot.log', encoding='utf-8')
+# Configure logging (UTF-8 for file, ASCII-safe for console) - use absolute path
+LOG_DIR = Path(__file__).parent
+LOG_FILE = LOG_DIR / 'bot.log'
+file_handler = logging.FileHandler(str(LOG_FILE), encoding='utf-8')
 file_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
 
 console_handler = logging.StreamHandler()
@@ -38,10 +44,17 @@ logger = logging.getLogger(__name__)
 # Environment variables
 TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
 CLADIO_SERVER_URL = os.getenv('CLADIO_SERVER_URL', 'http://localhost:8000')
+VPS_PROJECT_DIR = '/opt/claudio-bot'  # Path on VPS
 ALLOWED_USERS = os.getenv('ALLOWED_USERS', '').split(',') if os.getenv('ALLOWED_USERS') else []
 ALLOWED_ADMIN_USERS = os.getenv('ALLOWED_ADMIN_USERS', '').split(',') if os.getenv('ALLOWED_ADMIN_USERS') else []
 TIMEOUT = int(os.getenv('REQUEST_TIMEOUT', '60'))
-ADMIN_KEY = os.getenv('ADMIN_KEY', '')  # Additional security for admin commands
+ADMIN_KEY = os.getenv('ADMIN_KEY', '')
+
+# Conversation states for API key input
+WAITING_FOR_API_KEY = 1
+
+# Store pending API key operations
+pending_key_operations: Dict[int, Dict] = {}
 
 
 def check_permission(user_id: int) -> bool:
@@ -56,6 +69,45 @@ def check_admin_permission(user_id: int) -> bool:
     if not ALLOWED_ADMIN_USERS:
         return False  # No admin configured
     return str(user_id) in ALLOWED_ADMIN_USERS or "*" in ALLOWED_ADMIN_USERS
+
+
+def mask_api_key(api_key: str) -> str:
+    """Mask API key for display - show only first 8 and last 4 characters"""
+    if not api_key or len(api_key) < 12:
+        return "***"
+    return f"{api_key[:8]}...{api_key[-4:]}"
+
+
+def validate_api_key_format(provider: str, api_key: str) -> bool:
+    """Validate API key format based on provider"""
+    if not api_key or len(api_key) < 10:
+        return False
+
+    provider = provider.lower()
+
+    # Anthropic keys start with sk-ant-
+    if provider == 'anthropic':
+        return api_key.startswith('sk-ant-')
+
+    # OpenAI keys start with sk-
+    elif provider == 'openai':
+        return api_key.startswith('sk-') and not api_key.startswith('sk-ant-')
+
+    # Gemini keys are longer alphanumeric
+    elif provider == 'gemini':
+        return len(api_key) >= 20
+
+    # Qwen keys start with sk-
+    elif provider == 'qwen':
+        return api_key.startswith('sk-')
+
+    # DeepSeek keys start with sk-
+    elif provider == 'deepseek':
+        return api_key.startswith('sk-')
+
+    # Custom providers - minimal validation
+    else:
+        return len(api_key) >= 10
 
 
 async def call_claudio(message: str, user_id: int, user_name: str, clear_history: bool = False) -> str:
@@ -82,6 +134,68 @@ async def call_claudio(message: str, user_id: int, user_name: str, clear_history
         raise Exception(f"Failed to connect to Claudio: {str(e)}")
 
 
+async def update_env_file(provider: str, api_key: str) -> bool:
+    """Update .env file with new API key"""
+    try:
+        # Map provider to env variable name
+        env_mapping = {
+            'anthropic': 'ANTHROPIC_API_KEY',
+            'openai': 'OPENAI_API_KEY',
+            'gemini': 'GEMINI_API_KEY',
+            'qwen': 'QWEN_API_KEY',
+            'deepseek': 'DEEPSEEK_API_KEY',
+            'ollama': 'OLLAMA_BASE_URL',
+        }
+
+        env_var = env_mapping.get(provider.lower())
+        if not env_var:
+            return False
+
+        # Read current .env
+        env_path = f'{VPS_PROJECT_DIR}/.env'
+        with open(env_path, 'r') as f:
+            lines = f.readlines()
+
+        # Update or add the API key line
+        updated = False
+        for i, line in enumerate(lines):
+            if line.strip().startswith(f'{env_var}='):
+                lines[i] = f'{env_var}={api_key}\n'
+                updated = True
+                break
+
+        if not updated:
+            lines.append(f'{env_var}={api_key}\n')
+
+        # Write back
+        with open(env_path, 'w') as f:
+            f.writelines(lines)
+
+        logger.info(f"Updated {env_var} in .env file")
+        return True
+
+    except Exception as e:
+        logger.error(f"Failed to update .env: {e}")
+        return False
+
+
+async def restart_services() -> bool:
+    """Restart claudio-server to load new API keys"""
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            # Use local script or command to restart
+            response = await client.post(
+                f"{CLADIO_SERVER_URL}/api/admin/restart",
+                timeout=5.0
+            )
+            return True
+    except:
+        # If endpoint doesn't exist, try direct command
+        pass
+
+    return False
+
+
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /start command"""
     if not check_permission(update.effective_user.id):
@@ -94,12 +208,16 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         "• 1,396 n8n nodes (core + community)\n"
         "• n8n-MCP tools & validation\n"
         "• 2,709+ workflow templates\n"
-        "• Advanced expression syntax\n\n"
+        "• Advanced expression syntax\n"
+        "• **Dynamic AI model switching** 🔄\n"
+        "• **Secure API key management** 🔐\n\n"
         "*Commands:*\n"
         "/start - Show this message\n"
         "/clear - Clear conversation history\n"
         "/health - Check Claudio server status\n"
         "/help - Show help\n\n"
+        "*Admin Commands:*\n"
+        "/admin - Show admin commands\n\n"
         "Ask me anything about n8n workflows!"
     )
     await update.message.reply_text(welcome_message, parse_mode='Markdown')
@@ -115,7 +233,9 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         "• Fix expression errors\n"
         "• Suggest templates (2,709+ available)\n"
         "• Debug workflow issues\n"
-        "• Explain n8n patterns\n\n"
+        "• Explain n8n patterns\n"
+        "• **Switch AI models dynamically** 🔄\n"
+        "• **Add API keys securely** 🔐\n\n"
         "*Commands:*\n"
         "/clear - Reset conversation\n"
         "/health - Check server status\n\n"
@@ -137,11 +257,16 @@ async def health_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             data = response.json()
 
             status_emoji = "✅" if data.get("status") == "healthy" else "❌"
-            n8n_status = "✅ Connected" if data.get("n8n_connected") else "❌ Disconnected"
+            n8n_status = "✅ Connected" if data.get("n8n", {}).get("connected") else "❌ Disconnected"
+
+            current_provider = data.get("current_provider", "N/A")
+            current_model = data.get("current_model", "N/A")
 
             health_message = (
                 f"{status_emoji} *Claudio Server Status*\n\n"
                 f"Server: {data.get('status', 'unknown')}\n"
+                f"Provider: {current_provider}\n"
+                f"Model: {current_model}\n"
                 f"n8n: {n8n_status}\n"
                 f"Timestamp: {data.get('timestamp', 'unknown')}"
             )
@@ -163,7 +288,214 @@ async def clear_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
 
 # ============================================
-# ADMIN COMMANDS
+# API KEY MANAGEMENT COMMANDS
+# ============================================
+
+async def addkey_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Start the process to add an API key"""
+    if not check_admin_permission(update.effective_user.id):
+        await update.message.reply_text("⛔ You don't have admin permission.")
+        return
+
+    args = context.args if hasattr(context, 'args') else []
+
+    if not args:
+        await update.message.reply_text(
+            "🔐 *Add API Key*\n\n"
+            "Usage: /addkey <provider>\n\n"
+            "Available providers:\n"
+            "• anthropic\n"
+            "• openai\n"
+            "• gemini\n"
+            "• qwen\n"
+            "• deepseek\n\n"
+            "Example: /addkey gemini\n\n"
+            "After this command, send me your API key in a separate message. "
+            "The key will be hidden and stored securely.",
+            parse_mode='Markdown'
+        )
+        return
+
+    provider = args[0].lower()
+
+    # Validate provider
+    valid_providers = ['anthropic', 'openai', 'gemini', 'qwen', 'deepseek', 'ollama']
+    if provider not in valid_providers:
+        await update.message.reply_text(
+            f"❌ Invalid provider '{provider}'\n\n"
+            f"Valid providers: {', '.join(valid_providers)}"
+        )
+        return
+
+    # Store the pending operation
+    user_id = update.effective_user.id
+    pending_key_operations[user_id] = {
+        'provider': provider,
+        'timestamp': None
+    }
+
+    # Send instructions for secure key input
+    await update.message.reply_text(
+        f"🔐 *Adding API Key for {provider.title()}*\n\n"
+        f"Please send me your API key in the next message.\n\n"
+        f"📝 *Format guidelines:*\n"
+        f"• The key will be automatically hidden after processing\n"
+        f"• Make sure the key is valid and active\n"
+        f"• You can cancel with /cancel\n\n"
+        f"⏳ *Waiting for your key...*",
+        parse_mode='Markdown'
+    )
+
+    return WAITING_FOR_API_KEY
+
+
+async def receive_api_key(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Receive and process the API key"""
+    user_id = update.effective_user.id
+
+    # Check if user is in the middle of adding a key
+    if user_id not in pending_key_operations:
+        return ConversationHandler.END
+
+    # Get the API key from the message
+    api_key = update.message.text.strip()
+
+    # Get provider
+    provider = pending_key_operations[user_id]['provider']
+
+    # Validate the key format
+    if not validate_api_key_format(provider, api_key):
+        await update.message.reply_text(
+            f"❌ *Invalid API key format for {provider.title()}*\n\n"
+            f"Please check your key and try again.\n"
+            f"Use /cancel to abort.",
+            parse_mode='Markdown'
+        )
+        return ConversationHandler.END
+
+    # Try to delete the message with the key for security
+    try:
+        await update.message.delete()
+    except:
+        pass
+
+    # Update the .env file
+    success = await update_env_file(provider, api_key)
+
+    if not success:
+        await update.message.reply_text(
+            "❌ Failed to update API key. Please check server logs."
+        )
+        del pending_key_operations[user_id]
+        return ConversationHandler.END
+
+    # Mask the key for display
+    masked_key = mask_api_key(api_key)
+
+    # Show success message
+    await update.message.reply_text(
+        f"✅ *API Key Added Successfully*\n\n"
+        f"Provider: {provider.title()}\n"
+        f"Key: `{masked_key}`\n\n"
+        f"🔄 Restarting server to apply changes...\n\n"
+        f"This will take a few seconds...",
+        parse_mode='Markdown'
+    )
+
+    # Restart services via API
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            # Call reload endpoint to restart server with new config
+            response = await client.post(
+                f"{CLADIO_SERVER_URL}/api/admin/reload",
+                timeout=10.0
+            )
+            response.raise_for_status()
+
+        await update.message.reply_text(
+            "✅ *Server Restarted*\n\n"
+            f"The new API key is now active.\n"
+            f"You can switch to this provider with:\n"
+            f"/switch {provider}",
+            parse_mode='Markdown'
+        )
+    except Exception as e:
+        await update.message.reply_text(
+            f"⚠️ API key saved to .env, but auto-restart failed.\n\n"
+            f"Please restart manually:\n"
+            f"`sudo systemctl restart claudio-server`\n\n"
+            f"Error: {str(e)}",
+            parse_mode='Markdown'
+        )
+
+    # Clear the pending operation
+    del pending_key_operations[user_id]
+
+    return ConversationHandler.END
+
+
+async def cancel_operation(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Cancel the current operation"""
+    user_id = update.effective_user.id
+
+    if user_id in pending_key_operations:
+        del pending_key_operations[user_id]
+
+    await update.message.reply_text(
+        "❌ Operation cancelled.\n\n"
+        "Your API key was NOT saved."
+    )
+
+    return ConversationHandler.END
+
+
+async def listkeys_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """List all configured API keys (masked)"""
+    if not check_admin_permission(update.effective_user.id):
+        await update.message.reply_text("⛔ You don't have admin permission.")
+        return
+
+    # Read current API keys from environment
+    keys_info = {
+        'Anthropic': {
+            'key': os.getenv('ANTHROPIC_API_KEY', ''),
+            'env': 'ANTHROPIC_API_KEY'
+        },
+        'OpenAI': {
+            'key': os.getenv('OPENAI_API_KEY', ''),
+            'env': 'OPENAI_API_KEY'
+        },
+        'Gemini': {
+            'key': os.getenv('GEMINI_API_KEY', ''),
+            'env': 'GEMINI_API_KEY'
+        },
+        'Qwen': {
+            'key': os.getenv('QWEN_API_KEY', ''),
+            'env': 'QWEN_API_KEY'
+        },
+        'DeepSeek': {
+            'key': os.getenv('DEEPSEEK_API_KEY', ''),
+            'env': 'DEEPSEEK_API_KEY'
+        }
+    }
+
+    message = "🔐 *Configured API Keys*\n\n"
+
+    for name, info in keys_info.items():
+        key = info['key']
+        if key:
+            masked = mask_api_key(key)
+            message += f"✅ {name}: `{masked}`\n"
+        else:
+            message += f"❌ {name}: *Not configured*\n"
+
+    message += "\n*Add a key:*\n/addkey <provider>\n"
+
+    await update.message.reply_text(message, parse_mode='Markdown')
+
+
+# ============================================
+# ADMIN COMMANDS - DYNAMIC MODEL SWITCHING
 # ============================================
 
 async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -181,20 +513,27 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             response.raise_for_status()
             data = response.json()
 
+        mode = data.get('mode', 'single')
+        auto_fallback = data.get('auto_fallback', False)
+
         status_text = (
             f"📊 *Model Status*\n\n"
+            f"Mode: {'🔄 Dynamic' if mode == 'dynamic-multi' else '📌 Single'}\n"
             f"Provider: {data['current_provider']}\n"
             f"Model: {data['current_model']}\n"
-            f"Auto-fallback: {'✅ Enabled' if data['auto_fallback'] else '❌ Disabled'}\n\n"
-            f"*Available Providers:*\n"
+            f"Auto-fallback: {'✅ Enabled' if auto_fallback else '❌ Disabled'}\n\n"
         )
 
-        for provider in data['available_providers']:
-            status_text += f"• {provider}\n"
+        if mode == 'dynamic-multi':
+            status_text += "*Available Providers:*\n"
+            providers_info = data.get('providers_info', {})
+            for name, info in providers_info.items():
+                current = " 🔸" if info.get('current') else ""
+                configured = "✅" if info.get('configured') else "❌"
+                model = info.get('model', 'N/A')
+                status_text += f"{configured} {name}{current}: {model}\n"
 
-        if data.get('custom_model'):
-            custom = data['custom_model']
-            status_text += f"\n*Custom Model:*\n• Name: {custom['name']}\n• Configured: {'✅' if custom['configured'] else '❌'}\n"
+            status_text += f"\n*Fallback Order:*\n{', '.join(data.get('fallback_order', []))}"
 
         await update.message.reply_text(status_text, parse_mode='Markdown')
 
@@ -211,31 +550,38 @@ async def models_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     try:
         async with httpx.AsyncClient(timeout=10) as client:
             response = await client.post(
-                f"{CLADIO_SERVER_URL}/api/admin/list-models",
+                f"{CLAUDIO_SERVER_URL}/api/admin/list-models",
                 json={"user_id": update.effective_user.id}
             )
             response.raise_for_status()
             data = response.json()
 
-        models_text = f"📋 *Available Models*\n\nCurrent mode: *{data['current_mode']}*\n\n"
+        mode = data.get('mode', 'single')
 
-        for provider_key, provider_info in data['providers'].items():
-            status = "✅" if provider_info['configured'] else "❌"
-            models_text += f"{status} *{provider_info['name']}*\n"
+        models_text = f"📋 *Available Models*\n\nMode: *{mode}*\n\n"
 
-            if provider_info.get('current_model'):
-                models_text += f"  Current: {provider_info['current_model']}\n"
+        if mode == 'dynamic-multi':
+            providers = data.get('providers', {})
+            current = data.get('current_provider', '')
 
-            if provider_info.get('models'):
-                models_text += f"  Available: {', '.join(provider_info['models'][:3])}"
-                if len(provider_info['models']) > 3:
-                    models_text += f" (+{len(provider_info['models'])-3} more)"
+            for name, info in providers.items():
+                is_current = " 🔸" if name == current else ""
+                configured = "✅" if info.get('configured') else "❌"
+                ptype = info.get('type', 'unknown')
+                model = info.get('model', 'N/A')
+                models_text += f"{configured} *{name}*{is_current}\n"
+                models_text += f"  Type: {ptype}\n"
+                models_text += f"  Model: {model}\n"
+                if info.get('base_url'):
+                    models_text += f"  URL: {info['base_url']}\n"
                 models_text += "\n"
-
-            if provider_key == 'ollama' and provider_info.get('base_url'):
-                models_text += f"  Base URL: {provider_info['base_url']}\n"
-
-            models_text += "\n"
+        else:
+            providers = data.get('providers', {})
+            for name, info in providers.items():
+                configured = "✅" if info.get('configured') else "❌"
+                model = info.get('model', 'N/A')
+                models_text += f"{configured} *{name}*\n"
+                models_text += f"  Model: {model}\n\n"
 
         await update.message.reply_text(models_text, parse_mode='Markdown')
 
@@ -244,7 +590,7 @@ async def models_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
 
 async def switch_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Switch to a different model"""
+    """Switch to a different model dynamically"""
     if not check_admin_permission(update.effective_user.id):
         await update.message.reply_text("⛔ You don't have admin permission.")
         return
@@ -254,7 +600,7 @@ async def switch_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     if not args:
         await update.message.reply_text(
             "🔄 *Switch Model*\n\n"
-            "Usage: /switch <provider> [<model>]\n\n"
+            "Usage: /switch <provider>\n\n"
             "Available providers:\n"
             "• anthropic\n"
             "• openai\n"
@@ -262,101 +608,65 @@ async def switch_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             "• qwen\n"
             "• deepseek\n"
             "• ollama\n\n"
-            "Example: /switch anthropic\n"
-            "Example: /switch openai gpt-4o"
+            "Example: /switch openai\n\n"
+            "💡 In dynamic mode, this switches instantly without restart!",
+            parse_mode='Markdown'
         )
         return
 
     try:
-        new_provider = args[0]
-        new_model = args[1] if len(args) > 1 else None
+        new_provider = args[0].lower()
 
         async with httpx.AsyncClient(timeout=10) as client:
             response = await client.post(
                 f"{CLADIO_SERVER_URL}/api/admin/switch-model",
                 json={
                     "user_id": update.effective_user.id,
-                    "new_provider": new_provider,
-                    "new_model": new_model
+                    "new_provider": new_provider
                 }
             )
             response.raise_for_status()
             data = response.json()
 
-        if data.get("requires_restart"):
-            await update.message.reply_text(
-                f"⚠️ {data['message']}\n\n"
-                f"Para cambiar de modelo, edita el archivo .env en tu servidor:\n"
-                f"AI_PROVIDER={new_provider}\n"
-                f"Luego reinicia el servidor:\n"
-                f"sudo systemctl restart claudio-server"
-            )
-        else:
-            await update.message.reply_text(f"✅ {data['message']}")
+            if data.get("requires_restart"):
+                await update.message.reply_text(
+                    f"⚠️ {data['message']}\n\n"
+                    f"Para habilitar cambio dinámico:\n"
+                    f"1. Edita .env: AI_PROVIDER=multi\n"
+                    f"2. Reinicia: sudo systemctl restart claudio-server"
+                )
+            else:
+                old = data.get('old_provider', 'unknown')
+                new = data.get('new_provider', 'unknown')
+                await update.message.reply_text(
+                    f"✅ {data['message']}\n\n"
+                    f"Provider changed: {old} → {new}\n"
+                    f"Next message will use the new model."
+                )
 
     except Exception as e:
         await update.message.reply_text(f"❌ Failed to switch model: {str(e)}")
 
 
 async def addmodel_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Add a custom model"""
+    """Add a custom model (redirects to /addkey for standard providers)"""
     if not check_admin_permission(update.effective_user.id):
         await update.message.reply_text("⛔ You don't have admin permission.")
         return
 
-    args = context.args if hasattr(context, 'args') else []
-
-    if len(args) < 3:
-        await update.message.reply_text(
-            "➕ *Add Custom Model*\n\n"
-            "Usage: /addmodel <name> <api_key> <base_url> [provider_type]\n\n"
-            "Parameters:\n"
-            "• name - Model name (ej: mi-modelo-custom)\n"
-            "• api_key - Your API key\n"
-            "• base_url - API base URL (ej: https://api.example.com/v1)\n"
-            "• provider_type - openai or anthropic (default: openai)\n\n"
-            "Example:\n"
-            "/addmodel mi-modelo sk-... https://api.example.com/v1 openai\n\n"
-            "Note: El modo multi-provider debe estar activo en el servidor"
-        )
-        return
-
-    try:
-        name = args[0]
-        api_key = args[1]
-        base_url = args[2]
-        provider_type = args[3] if len(args) > 3 else "openai"
-
-        async with httpx.AsyncClient(timeout=10) as client:
-            response = await client.post(
-                f"{CLADIO_SERVER_URL}/api/admin/add-custom-model",
-                json={
-                    "user_id": update.effective_user.id,
-                    "name": name,
-                    "api_key": api_key,
-                    "base_url": base_url,
-                    "provider_type": provider_type
-                }
-            )
-            response.raise_for_status()
-            data = response.json()
-
-        if data.get("requires_multi_provider"):
-            await update.message.reply_text(
-                f"⚠️ {data['message']}\n\n"
-                f"Para agregar modelos custom, activa multi-provider en .env:\n"
-                f"AI_PROVIDER=multi\n"
-                f"Y reinicia el servidor."
-            )
-        else:
-            available = data.get('available_providers', [])
-            await update.message.reply_text(
-                f"✅ {data['message']}\n\n"
-                f"Proveedores disponibles: {', '.join(available)}"
-            )
-
-    except Exception as e:
-        await update.message.reply_text(f"❌ Failed to add custom model: {str(e)}")
+    await update.message.reply_text(
+        "➕ *Add Custom Model*\n\n"
+        "For standard providers (Anthropic, OpenAI, Gemini, etc.),\n"
+        "use the new secure command:\n\n"
+        "🔐 /addkey <provider>\n\n"
+        "This will:\n"
+        "• Prompt you for the API key securely\n"
+        "• Hide the key after input\n"
+        "• Update .env automatically\n"
+        "• Restart the server\n\n"
+        "Example: /addkey gemini",
+        parse_mode='Markdown'
+    )
 
 
 async def test_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -400,21 +710,25 @@ async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
     admin_text = (
         "⚙️ *Admin Commands*\n\n"
-        "*Model Management:*\n"
+        "*🔐 API Key Management:*\n"
+        "/addkey <provider> - Add API key securely 🔐\n"
+        "/listkeys - Show configured keys (masked)\n\n"
+        "*🔄 Model Management:*\n"
         "/status - Show current model status\n"
         "/models - List all available models\n"
-        "/switch <provider> - Switch to different provider\n"
-        "/addmodel <name> <key> <url> [type] - Add custom model\n"
+        "/switch <provider> - Switch provider dynamically\n"
         "/test - Test current model availability\n\n"
-        "*System Commands:*\n"
+        "*🔧 System Commands:*\n"
         "/health - Check server health\n"
         "/clear - Clear conversation history\n"
-        "/help - Show this help\n\n"
+        "/cancel - Cancel current operation\n\n"
         "*Available Providers:*\n"
         "anthropic, openai, gemini, qwen, deepseek, ollama\n\n"
-        "*Provider Types for Custom Models:*\n"
-        "openai (default) - For OpenAI-compatible APIs\n"
-        "anthropic - For Anthropic-compatible APIs"
+        "*🔐 Security Features:*\n"
+        "• API keys are automatically hidden\n"
+        "• Key messages are deleted after processing\n"
+        "• Keys are stored securely in .env\n"
+        "• Only masked versions are displayed"
     )
 
     await update.message.reply_text(admin_text, parse_mode='Markdown')
@@ -458,7 +772,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         logger.error(f"Error processing message: {e}")
         await update.message.reply_text(
             f"❌ Error: {str(e)}\n\n"
-            f"💡 Use /health to check if Claudio server is running."
+            f"💡 Use /health to check if Claudio server is running.\n"
+            f"💡 Use /switch <provider> to try a different AI model."
         )
 
 
@@ -470,7 +785,7 @@ def main() -> None:
     # Create application
     application = Application.builder().token(TELEGRAM_TOKEN).build()
 
-    # Register handlers
+    # Register command handlers
     application.add_handler(CommandHandler("start", start_command))
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("health", health_command))
@@ -483,12 +798,25 @@ def main() -> None:
     application.add_handler(CommandHandler("addmodel", addmodel_command))
     application.add_handler(CommandHandler("test", test_command))
     application.add_handler(CommandHandler("admin", admin_command))
+    application.add_handler(CommandHandler("listkeys", listkeys_command))
 
+    # Conversation handler for API key input
+    addkey_handler = ConversationHandler(
+        entry_points=[CommandHandler("addkey", addkey_command)],
+        states={
+            WAITING_FOR_API_KEY: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_api_key)],
+        },
+        fallbacks=[CommandHandler("cancel", cancel_operation)],
+    )
+    application.add_handler(addkey_handler)
+
+    # Regular message handler (must be last)
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
     # Start bot
     logger.info("Claudio Telegram Bot starting...")
     logger.info(f"Claudio Server: {CLADIO_SERVER_URL}")
+    logger.info(f"Admin users: {ALLOWED_ADMIN_USERS}")
     application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 
