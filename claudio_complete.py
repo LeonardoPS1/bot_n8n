@@ -1069,6 +1069,26 @@ class N8NMCPTools:
         except Exception as e:
             return {"error": str(e)}
 
+    async def delete_workflow(self, workflow_id: str) -> Dict[str, Any]:
+        """Delete workflow from n8n"""
+        if not N8N_API_KEY:
+            return {"error": "N8N_API_KEY not configured"}
+
+        try:
+            async with httpx.AsyncClient(
+                timeout=10,
+                follow_redirects=True,
+                verify=False
+            ) as client:
+                response = await client.delete(
+                    f"{self.base_url}/workflows/{workflow_id}",
+                    headers=self.headers
+                )
+                response.raise_for_status()
+                return {"success": True, "message": f"Workflow {workflow_id} deleted"}
+        except Exception as e:
+            return {"error": str(e)}
+
 
 # Initialize tools
 n8n_tools = N8NMCPTools()
@@ -1256,18 +1276,49 @@ async def analyze_and_use_tools(message: str) -> Dict[str, Any]:
     context = {}
     message_lower = message.lower()
 
-    # Check workflows
-    if any(word in message_lower for word in ["workflow", "workflows", "mis workflows", "listar"]):
-        try:
-            workflows = await n8n_tools.list_workflows()
-            if not isinstance(workflows, dict) or "error" not in workflows:
-                context["workflows"] = {
-                    "count": len(workflows) if isinstance(workflows, list) else "unknown",
-                    "recent": workflows[:5] if isinstance(workflows, list) else list(workflows.values())[:5] if isinstance(workflows, dict) else []
-                }
-        except Exception as e:
-            logger.warning(f"Failed to fetch workflows: {e}")
-            context["workflows_error"] = "n8n service unavailable - workflows cannot be listed"
+    # DELETE WORKFLOWS - Detect delete/eliminate commands
+    if any(word in message_lower for word in ["eliminar", "borrar", "delete", "elimina", "borra"]):
+        if any(word in message_lower for word in ["workflow", "workflows", "todo", "todos", "todos los", "all"]):
+            try:
+                workflows = await n8n_tools.list_workflows()
+                if isinstance(workflows, list) and len(workflows) > 0:
+                    deleted_count = 0
+                    results = []
+                    for wf in workflows:
+                        wf_id = wf.get("id")
+                        wf_name = wf.get("name", "Unknown")
+                        if wf_id:
+                            result = await n8n_tools.delete_workflow(wf_id)
+                            if "error" not in result:
+                                deleted_count += 1
+                                results.append(f"✓ Deleted: {wf_name}")
+                            else:
+                                results.append(f"✗ Failed: {wf_name} - {result.get('error', 'Unknown error')}")
+
+                    context["workflows_deleted"] = {
+                        "count": deleted_count,
+                        "results": results
+                    }
+                else:
+                    context["workflows_deleted"] = {"error": "No workflows found or couldn't list workflows"}
+            except Exception as e:
+                logger.warning(f"Failed to delete workflows: {e}")
+                context["workflows_deleted"] = {"error": str(e)}
+
+    # Check workflows (list)
+    if any(word in message_lower for word in ["workflow", "workflows", "mis workflows", "listar", "cuantos"]):
+        # Don't list if already deleted (avoid duplicate context)
+        if "workflows_deleted" not in context:
+            try:
+                workflows = await n8n_tools.list_workflows()
+                if not isinstance(workflows, dict) or "error" not in workflows:
+                    context["workflows"] = {
+                        "count": len(workflows) if isinstance(workflows, list) else "unknown",
+                        "recent": workflows[:5] if isinstance(workflows, list) else list(workflows.values())[:5] if isinstance(workflows, dict) else []
+                    }
+            except Exception as e:
+                logger.warning(f"Failed to fetch workflows: {e}")
+                context["workflows_error"] = "n8n service unavailable - workflows cannot be listed"
 
     # Search nodes
     if any(word in message_lower for word in ["nodo", "node", "buscar", "search"]):
@@ -1800,7 +1851,15 @@ def main():
     if not ai_provider.api_key or ai_provider.api_key == "dynamic":
         logger.info("🔧 Using dynamic multi-provider mode")
 
-    uvicorn.run(app, host="0.0.0.0", port=PORT, log_level="info")
+    # Increase timeout for long operations (e.g., deleting multiple workflows)
+    uvicorn.run(
+        app,
+        host="0.0.0.0",
+        port=PORT,
+        log_level="info",
+        timeout_keep_alive=300,
+        timeout_graceful_shutdown=30
+    )
 
 
 if __name__ == '__main__':

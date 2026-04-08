@@ -47,7 +47,7 @@ CLADIO_SERVER_URL = os.getenv('CLADIO_SERVER_URL', 'http://localhost:8000')
 VPS_PROJECT_DIR = '/opt/claudio-bot'  # Path on VPS
 ALLOWED_USERS = os.getenv('ALLOWED_USERS', '').split(',') if os.getenv('ALLOWED_USERS') else []
 ALLOWED_ADMIN_USERS = os.getenv('ALLOWED_ADMIN_USERS', '').split(',') if os.getenv('ALLOWED_ADMIN_USERS') else []
-TIMEOUT = int(os.getenv('REQUEST_TIMEOUT', '60'))
+TIMEOUT = int(os.getenv('REQUEST_TIMEOUT', '180'))  # Increased to 3 minutes for bulk operations
 ADMIN_KEY = os.getenv('ADMIN_KEY', '')
 
 # Conversation states for API key input
