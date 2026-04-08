@@ -96,6 +96,20 @@ DEEPSEEK_MODEL = os.getenv('DEEPSEEK_MODEL', 'deepseek-chat')
 OLLAMA_BASE_URL = os.getenv('OLLAMA_BASE_URL', 'http://localhost:11434')
 OLLAMA_MODEL = os.getenv('OLLAMA_MODEL', 'llama3')
 
+# Custom model support
+CUSTOM_MODEL_NAME = os.getenv('CUSTOM_MODEL_NAME', '')
+CUSTOM_MODEL_API_KEY = os.getenv('CUSTOM_MODEL_API_KEY', '')
+CUSTOM_MODEL_BASE_URL = os.getenv('CUSTOM_MODEL_BASE_URL', '')
+CUSTOM_MODEL_PROVIDER = os.getenv('CUSTOM_MODEL_PROVIDER', 'openai')  # openai-compatible or anthropic
+
+# Fallback configuration
+AUTO_FALLBACK = os.getenv('AUTO_FALLBACK', 'true').lower() == 'true'
+FALLBACK_ORDER = os.getenv('FALLBACK_ORDER', 'anthropic,openai,gemini,qwen,deepseek,ollama').split(',')
+
+# Notification bot configuration
+BOT_NOTIFICATION_URL = os.getenv('BOT_NOTIFICATION_URL', '')  # URL to notify bot
+ALLOWED_ADMIN_USERS = os.getenv('ALLOWED_ADMIN_USERS', '').split(',') if os.getenv('ALLOWED_ADMIN_USERS') else []
+
 # n8n Configuration
 N8N_API_KEY = os.getenv('N8N_API_KEY')
 N8N_INSTANCE_URL = os.getenv('N8N_INSTANCE_URL', 'https://localhost')
@@ -327,39 +341,183 @@ class DeepSeekProvider(AIProvider):
         return OPENAI_AVAILABLE and bool(self.api_key)
 
 
-class MultiProvider(AIProvider):
-    """Multi-provider fallback support"""
+class CustomProvider(AIProvider):
+    """Custom AI provider for user-defined models (OpenAI or Anthropic compatible)"""
 
-    def __init__(self, providers: List[AIProvider]):
+    def __init__(self, name: str, api_key: str, base_url: str, model: str, provider_type: str = 'openai'):
+        super().__init__(api_key, model)
+        self.name = name
+        self.base_url = base_url
+        self.provider_type = provider_type  # 'openai' or 'anthropic'
+
+        if provider_type == 'openai' and OPENAI_AVAILABLE and api_key:
+            self.client = OpenAI(api_key=api_key, base_url=base_url)
+        elif provider_type == 'anthropic' and ANTHROPIC_AVAILABLE and api_key:
+            self.client = Anthropic(api_key=api_key)
+        else:
+            self.client = None
+
+    async def chat(self, messages: List[Dict[str, str]], system_prompt: str) -> str:
+        if not self.client:
+            raise ValueError(f"Custom provider '{self.name}' not initialized")
+
+        if self.provider_type == 'openai':
+            all_messages = [{"role": "system", "content": system_prompt}] + messages
+            try:
+                response = self.client.chat.completions.create(
+                    model=self.model,
+                    messages=all_messages,
+                    max_tokens=4096
+                )
+                return response.choices[0].message.content
+            except Exception as e:
+                raise ValueError(f"Custom provider API error: {e}")
+
+        elif self.provider_type == 'anthropic':
+            try:
+                response = self.client.messages.create(
+                    model=self.model,
+                    max_tokens=4096,
+                    system=system_prompt,
+                    messages=messages
+                )
+                return response.content[0].text
+            except Exception as e:
+                raise ValueError(f"Custom provider API error: {e}")
+
+        raise ValueError(f"Unsupported provider type: {self.provider_type}")
+
+    def is_available(self) -> bool:
+        return self.client is not None
+
+    def get_name(self) -> str:
+        return self.name
+
+
+class MultiProvider(AIProvider):
+    """Multi-provider fallback support with automatic model switching"""
+
+    def __init__(self, providers: List[AIProvider], notification_callback=None):
         self.providers = providers
         self.api_key = "multi"
+        self.notification_callback = notification_callback
+        self.current_provider_index = 0
+        self.provider_history = []  # Track which providers were used
 
     async def chat(self, messages: List[Dict[str, str]], system_prompt: str) -> str:
         last_error = None
 
-        for provider in self.providers:
-            if await provider.is_available():
-                try:
-                    return await provider.chat(messages, system_prompt)
-                except Exception as e:
-                    last_error = e
-                    logger.warning(f"Provider {provider.__class__.__name__} failed: {e}")
+        for i, provider in enumerate(self.providers):
+            provider_name = provider.__class__.__name__.replace("Provider", "")
+
+            try:
+                # Check if provider is available
+                if not await provider.is_available():
+                    logger.warning(f"Provider {provider_name} is not available")
+                    continue
+
+                # Try to get response
+                response = await provider.chat(messages, system_prompt)
+
+                # Record successful provider
+                if i != self.current_provider_index:
+                    old_provider = self.providers[self.current_provider_index].__class__.__name__.replace("Provider", "")
+                    self.current_provider_index = i
+
+                    if self.notification_callback:
+                        await self.notification_callback(
+                            message=f"🔄 Modelo cambiado: {old_provider} → {provider_name}",
+                            type="model_switch"
+                        )
+
+                return response
+
+            except Exception as e:
+                last_error = e
+                error_msg = str(e)
+
+                # Check for quota/token errors
+                if any(keyword in error_msg.lower() for keyword in ['quota', 'limit', 'token', 'insufficient', 'rate']):
+                    logger.warning(f"Provider {provider_name} quota error: {e}")
+
+                    if self.notification_callback:
+                        await self.notification_callback(
+                            message=f"⚠️ Sin cuota en {provider_name}, cambiando de modelo...",
+                            type="quota_error"
+                        )
+
+                    # Try next provider
+                    continue
+                else:
+                    logger.error(f"Provider {provider_name} error: {e}")
                     continue
 
         if last_error:
+            # All providers failed
+            if self.notification_callback:
+                await self.notification_callback(
+                    message=f"❌ Todos los modelos fallaron. Último error: {str(last_error)}",
+                    type="all_providers_failed"
+                )
             raise last_error
+
         raise ValueError("No AI providers available")
 
     async def is_available(self) -> bool:
         return any(await p.is_available() for p in self.providers)
+
+    def add_custom_provider(self, provider: AIProvider):
+        """Add a custom provider to the list"""
+        self.providers.append(provider)
+        logger.info(f"Added custom provider: {provider.__class__.__name__}")
+
+    def get_available_providers(self) -> List[str]:
+        """Get list of available provider names"""
+        return [p.__class__.__name__.replace("Provider", "") for p in self.providers]
+
+    def get_current_provider(self) -> str:
+        """Get the currently active provider name"""
+        if self.current_provider_index < len(self.providers):
+            return self.providers[self.current_provider_index].__class__.__name__.replace("Provider", "")
+        return "Unknown"
 
 
 # ============================================
 # INITIALIZE AI PROVIDER
 # ============================================
 
+# ============================================
+# NOTIFICATION SYSTEM
+# ============================================
+
+async def send_bot_notification(message: str, notification_type: str = "info"):
+    """Send notification to the bot"""
+    if not BOT_NOTIFICATION_URL:
+        return
+
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            await client.post(
+                BOT_NOTIFICATION_URL,
+                json={
+                    "message": message,
+                    "type": notification_type,
+                    "timestamp": datetime.now().isoformat()
+                },
+                timeout=5.0
+            )
+    except Exception as e:
+        logger.warning(f"Failed to send bot notification: {e}")
+
+
 def get_ai_provider() -> AIProvider:
-    """Get configured AI provider"""
+    """Get configured AI provider with fallback support"""
+
+    def create_notification_callback():
+        """Create a callback for notifications"""
+        if AUTO_FALLBACK:
+            return send_bot_notification
+        return None
 
     if AI_PROVIDER == 'anthropic':
         return AnthropicProvider(
@@ -399,32 +557,56 @@ def get_ai_provider() -> AIProvider:
             model=OLLAMA_MODEL
         )
 
+    elif AI_PROVIDER == 'custom' and CUSTOM_MODEL_NAME:
+        return CustomProvider(
+            name=CUSTOM_MODEL_NAME,
+            api_key=CUSTOM_MODEL_API_KEY,
+            base_url=CUSTOM_MODEL_BASE_URL,
+            model=CUSTOM_MODEL_NAME,  # Use name as model
+            provider_type=CUSTOM_MODEL_PROVIDER
+        )
+
     elif AI_PROVIDER == 'multi':
         providers = []
 
-        if ANTHROPIC_AVAILABLE and ANTHROPIC_API_KEY:
-            providers.append(AnthropicProvider(ANTHROPIC_API_KEY, ANTHROPIC_MODEL))
+        # Add providers in configured order
+        for provider_name in FALLBACK_ORDER:
+            provider_name = provider_name.strip()
 
-        if OPENAI_AVAILABLE and OPENAI_API_KEY:
-            providers.append(OpenAIProvider(OPENAI_API_KEY, OPENAI_MODEL))
+            if provider_name == 'anthropic' and ANTHROPIC_API_KEY:
+                providers.append(AnthropicProvider(ANTHROPIC_API_KEY, ANTHROPIC_MODEL))
 
-        if GEMINI_AVAILABLE and GEMINI_API_KEY:
-            providers.append(GeminiProvider(GEMINI_API_KEY, GEMINI_MODEL))
+            elif provider_name == 'openai' and OPENAI_API_KEY:
+                providers.append(OpenAIProvider(OPENAI_API_KEY, OPENAI_MODEL))
 
-        if QWEN_API_KEY:
-            providers.append(QwenProvider(QWEN_API_KEY, QWEN_BASE_URL, QWEN_MODEL))
+            elif provider_name == 'gemini' and GEMINI_API_KEY:
+                providers.append(GeminiProvider(GEMINI_API_KEY, GEMINI_MODEL))
 
-        if DEEPSEEK_API_KEY:
-            providers.append(DeepSeekProvider(DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL, DEEPSEEK_MODEL))
+            elif provider_name == 'qwen' and QWEN_API_KEY:
+                providers.append(QwenProvider(QWEN_API_KEY, QWEN_BASE_URL, QWEN_MODEL))
 
-        if OllamaProvider(OLLAMA_BASE_URL, OLLAMA_MODEL).is_available():
-            providers.append(OllamaProvider(OLLAMA_BASE_URL, OLLAMA_MODEL))
+            elif provider_name == 'deepseek' and DEEPSEEK_API_KEY:
+                providers.append(DeepSeekProvider(DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL, DEEPSEEK_MODEL))
+
+            elif provider_name == 'ollama':
+                providers.append(OllamaProvider(OLLAMA_BASE_URL, OLLAMA_MODEL))
+
+        # Add custom provider if configured
+        if CUSTOM_MODEL_NAME and CUSTOM_MODEL_API_KEY:
+            providers.append(CustomProvider(
+                name=CUSTOM_MODEL_NAME,
+                api_key=CUSTOM_MODEL_API_KEY,
+                base_url=CUSTOM_MODEL_BASE_URL,
+                model=CUSTOM_MODEL_NAME,
+                provider_type=CUSTOM_MODEL_PROVIDER
+            ))
 
         if not providers:
             logger.warning("No providers configured for multi-provider mode, falling back to Anthropic")
             return AnthropicProvider(ANTHROPIC_API_KEY or '', ANTHROPIC_MODEL)
 
-        return MultiProvider(providers)
+        # Return MultiProvider with notification callback
+        return MultiProvider(providers, notification_callback=create_notification_callback())
 
     else:
         logger.warning(f"Unknown provider '{AI_PROVIDER}', falling back to Anthropic")
@@ -1131,6 +1313,251 @@ async def get_skill_details(skill_name: str):
         "class": skill_class.__name__,
         "doc": skill_class.__doc__,
         "attributes": [attr for attr in dir(skill_class) if not attr.startswith('_')]
+    }
+
+
+# ============================================
+# ADMIN ENDPOINTS
+# ============================================
+
+class AdminConfig(BaseModel):
+    user_id: int
+    admin_key: Optional[str] = None  # Additional security
+
+
+class ModelSwitchRequest(BaseModel):
+    user_id: int
+    new_provider: Optional[str] = None
+    new_model: Optional[str] = None
+    admin_key: Optional[str] = None
+
+
+class CustomModelRequest(BaseModel):
+    user_id: int
+    name: str
+    api_key: str
+    base_url: str
+    provider_type: str = "openai"  # or "anthropic"
+    admin_key: Optional[str] = None
+
+
+def is_admin_user(user_id: int) -> bool:
+    """Check if user is admin"""
+    if not ALLOWED_ADMIN_USERS:
+        return False  # No admin users configured
+    return str(user_id) in ALLOWED_ADMIN_USERS or "*" in ALLOWED_ADMIN_USERS
+
+
+@app.post("/api/admin/status")
+async def admin_status(request: AdminConfig):
+    """Get admin status and current model info"""
+    if not is_admin_user(request.user_id):
+        raise HTTPException(status_code=403, detail="Not authorized as admin")
+
+    current_provider = AI_PROVIDER
+    current_model = ai_provider.model if hasattr(ai_provider, 'model') else "N/A"
+
+    if isinstance(ai_provider, MultiProvider):
+        available = ai_provider.get_available_providers()
+        current_provider = ai_provider.get_current_provider()
+    else:
+        available = [current_provider]
+
+    return {
+        "current_provider": current_provider,
+        "current_model": current_model,
+        "available_providers": available,
+        "auto_fallback": AUTO_FALLBACK,
+        "fallback_order": FALLBACK_ORDER,
+        "custom_model": {
+            "name": CUSTOM_MODEL_NAME,
+            "configured": bool(CUSTOM_MODEL_API_KEY)
+        } if CUSTOM_MODEL_NAME else None
+    }
+
+
+@app.post("/api/admin/switch-model")
+async def switch_model(request: ModelSwitchRequest):
+    """Switch to a different model/provider"""
+    if not is_admin_user(request.user_id):
+        raise HTTPException(status_code=403, detail="Not authorized as admin")
+
+    global ai_provider
+
+    old_provider = ai_provider.__class__.__name__ if not isinstance(ai_provider, MultiProvider) else ai_provider.get_current_provider()
+
+    try:
+        if request.new_provider:
+            # Switch to different provider
+            new_provider = get_ai_provider()
+            # This would require restart in production, so we return instructions
+            return {
+                "message": f"Para cambiar a {request.new_provider}, modifica la variable AI_PROVIDER en .env y reinicia el servidor",
+                "requires_restart": True,
+                "current_provider": old_provider,
+                "requested_provider": request.new_provider
+            }
+
+        elif request.new_model and isinstance(ai_provider, AnthropicProvider):
+            # Can update Anthropic model without restart
+            from anthropic import Anthropic
+            ai_provider = AnthropicProvider(api_key=ANTHROPIC_API_KEY, model=request.new_model)
+
+            await send_bot_notification(
+                f"🔄 Modelo Anthropic cambiado a {request.new_model}",
+                "model_changed"
+            )
+
+            return {
+                "message": f"Modelo cambiado a {request.new_model}",
+                "old_model": ANTHROPIC_MODEL,
+                "new_model": request.new_model
+            }
+
+        else:
+            raise HTTPException(status_code=400, detail="Invalid request")
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/admin/add-custom-model")
+async def add_custom_model(request: CustomModelRequest):
+    """Add a custom model dynamically"""
+    if not is_admin_user(request.user_id):
+        raise HTTPException(status_code=403, detail="Not authorized as admin")
+
+    try:
+        # Add custom provider to multi-provider if active
+        if isinstance(ai_provider, MultiProvider):
+            custom_provider = CustomProvider(
+                name=request.name,
+                api_key=request.api_key,
+                base_url=request.base_url,
+                model=request.name,
+                provider_type=request.provider_type
+            )
+
+            ai_provider.add_custom_provider(custom_provider)
+
+            await send_bot_notification(
+                f"✅ Modelo custom agregado: {request.name}",
+                "model_added"
+            )
+
+            return {
+                "message": f"Modelo custom '{request.name}' agregado exitosamente",
+                "provider_type": request.provider_type,
+                "available_providers": ai_provider.get_available_providers()
+            }
+        else:
+            return {
+                "message": "El modo multi-provider no está activo. Activa AI_PROVIDER=multi en .env y reinicia para agregar modelos custom",
+                "requires_multi_provider": True
+            }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/admin/list-models")
+async def list_models(request: AdminConfig):
+    """List all available models and providers"""
+    if not is_admin_user(request.user_id):
+        raise HTTPException(status_code=403, detail="Not authorized as admin")
+
+    providers = {
+        "anthropic": {
+            "name": "Anthropic Claude",
+            "models": ["claude-sonnet-4-20250514", "claude-3-5-sonnet-20241022", "claude-3-haiku-20240307"],
+            "configured": bool(ANTHROPIC_API_KEY),
+            "current_model": ANTHROPIC_MODEL if ANTHROPIC_API_KEY else None
+        },
+        "openai": {
+            "name": "OpenAI",
+            "models": ["gpt-4o", "gpt-4-turbo", "gpt-3.5-turbo"],
+            "configured": bool(OPENAI_API_KEY),
+            "current_model": OPENAI_MODEL if OPENAI_API_KEY else None
+        },
+        "gemini": {
+            "name": "Google Gemini",
+            "models": ["gemini-2.0-flash-exp", "gemini-1.5-pro", "gemini-1.5-flash"],
+            "configured": bool(GEMINI_API_KEY),
+            "current_model": GEMINI_MODEL if GEMINI_API_KEY else None
+        },
+        "qwen": {
+            "name": "Alibaba Qwen",
+            "models": ["qwen-plus", "qwen-turbo", "qwen-max"],
+            "configured": bool(QWEN_API_KEY),
+            "current_model": QWEN_MODEL if QWEN_API_KEY else None
+        },
+        "deepseek": {
+            "name": "DeepSeek",
+            "models": ["deepseek-chat", "deepseek-coder"],
+            "configured": bool(DEEPSEEK_API_KEY),
+            "current_model": DEEPSEEK_MODEL if DEEPSEEK_API_KEY else None
+        },
+        "ollama": {
+            "name": "Ollama (Local)",
+            "models": ["llama3", "llama3:70b", "mistral", "codellama"],
+            "configured": True,  # Ollama can be checked
+            "base_url": OLLAMA_BASE_URL,
+            "current_model": OLLAMA_MODEL
+        },
+        "custom": {
+            "name": "Custom Model",
+            "configured": bool(CUSTOM_MODEL_API_KEY),
+            "name": CUSTOM_MODEL_NAME if CUSTOM_MODEL_API_KEY else None,
+            "provider_type": CUSTOM_MODEL_PROVIDER if CUSTOM_MODEL_API_KEY else None
+        }
+    }
+
+    return {
+        "providers": providers,
+        "current_mode": AI_PROVIDER,
+        "auto_fallback": AUTO_FALLBACK,
+        "fallback_order": FALLBACK_ORDER
+    }
+
+
+@app.post("/api/admin/test-model")
+async def test_model(request: AdminConfig):
+    """Test if a model is available and working"""
+    if not is_admin_user(request.user_id):
+        raise HTTPException(status_code=403, detail="Not authorized as admin")
+
+    try:
+        is_avail = await ai_provider.is_available()
+        return {
+            "provider": AI_PROVIDER,
+            "model": ai_provider.model,
+            "available": is_avail,
+            "status": "OK" if is_avail else "NOT_AVAILABLE"
+        }
+    except Exception as e:
+        return {
+            "provider": AI_PROVIDER,
+            "model": ai_provider.model,
+            "available": False,
+            "error": str(e)
+        }
+
+
+@app.post("/api/notify")
+async def notify_bot(notification: Dict[str, str]):
+    """Endpoint to receive notifications from the server"""
+    """This is called by the server to send notifications to the bot"""
+    message = notification.get("message", "")
+    notification_type = notification.get("type", "info")
+
+    # In a real implementation, this would send to Telegram
+    # For now, we just log it
+    logger.info(f"Notification to bot [{notification_type}]: {message}")
+
+    return {
+        "status": "delivered",
+        "message": message,
+        "type": notification_type
     }
 
 

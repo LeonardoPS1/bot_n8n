@@ -11,6 +11,9 @@
 ## 🌟 Features
 
 - **🧠 AI-Powered**: Powered by Claude, GPT-4, Gemini, Qwen, or DeepSeek with multi-provider support
+- **🔄 Auto-Fallback**: Automatically switches models when quota/errors occur
+- **➕ Custom Models**: Add any OpenAI/Anthropic-compatible API
+- **⚙️ Admin Commands**: Manage models via Telegram commands
 - **📊 n8n Integration**: Complete access to 1,396 n8n nodes and 2,709+ workflow templates
 - **🔧 Workflow Management**: Create, modify, and validate n8n workflows via chat
 - **🎯 Expression Validation**: Validate n8n expressions and fix common errors
@@ -273,6 +276,75 @@ Claudio includes 7 expert skills that activate automatically:
               │   n8n   │   │  Node   │
               │   API   │   │Database │
               └─────────┘   └─────────┘
+```
+
+---
+
+## ⚙️ Admin Commands & Model Management
+
+Claudio includes powerful admin commands to manage AI models via Telegram:
+
+### Admin Commands
+
+| Command | Description | Admin Only |
+|---------|-------------|------------|
+| `/status` | Show current model and provider status | ✅ |
+| `/models` | List all available models and providers | ✅ |
+| `/switch <provider>` | Switch to different AI provider | ✅ |
+| `/addmodel <name> <key> <url>` | Add custom AI model | ✅ |
+| `/test` | Test current model availability | ✅ |
+| `/health` | Check server health | ❌ |
+| `/clear` | Clear conversation history | ❌ |
+
+### Auto-Fallback Feature
+
+When `AI_PROVIDER=multi`, Claudio automatically switches models when:
+
+- ⚠️ **Quota exceeded** - Out of tokens/API limit
+- ❌ **Rate limit** - Too many requests
+- 🔌 **Connection error** - Provider unreachable
+
+**Fallback Order** (configurable):
+```
+Anthropic → OpenAI → Gemini → Qwen → DeepSeek → Ollama → Custom
+```
+
+**Notification:** You'll receive Telegram messages when models switch:
+```
+🔄 Modelo cambiado: Anthropic → OpenAI
+⚠️ Sin cuota en OpenAI, cambiando de modelo...
+✅ Modelo custom agregado: mi-modelo-custom
+```
+
+### Custom Models
+
+Add any OpenAI or Anthropic-compatible API:
+
+```bash
+# Add via Telegram command
+/addmodel mi-modelo sk-... https://api.example.com/v1 openai
+
+# Or configure in .env
+CUSTOM_MODEL_NAME=mi-modelo
+CUSTOM_MODEL_API_KEY=sk-...
+CUSTOM_MODEL_BASE_URL=https://api.example.com/v1
+CUSTOM_MODEL_PROVIDER=openai
+```
+
+### Environment Variables for Admin
+
+```bash
+# Admin users (can manage models)
+ALLOWED_ADMIN_USERS=123456789,987654321
+
+# Auto-fallback (default: true)
+AUTO_FALLBACK=true
+
+# Fallback order
+FALLBACK_ORDER=anthropic,openai,gemini,qwen,deepseek,ollama
+
+# Bot notification URL
+BOT_NOTIFICATION_URL=http://localhost:8000/api/notify
 ```
 
 ---

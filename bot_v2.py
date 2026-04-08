@@ -39,14 +39,23 @@ logger = logging.getLogger(__name__)
 TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
 CLADIO_SERVER_URL = os.getenv('CLADIO_SERVER_URL', 'http://localhost:8000')
 ALLOWED_USERS = os.getenv('ALLOWED_USERS', '').split(',') if os.getenv('ALLOWED_USERS') else []
+ALLOWED_ADMIN_USERS = os.getenv('ALLOWED_ADMIN_USERS', '').split(',') if os.getenv('ALLOWED_ADMIN_USERS') else []
 TIMEOUT = int(os.getenv('REQUEST_TIMEOUT', '60'))
+ADMIN_KEY = os.getenv('ADMIN_KEY', '')  # Additional security for admin commands
 
 
 def check_permission(user_id: int) -> bool:
     """Check if user is allowed to use the bot"""
     if not ALLOWED_USERS:
         return True  # Allow all if no restriction
-    return str(user_id) in ALLOWED_USERS
+    return str(user_id) in ALLOWED_USERS or "*" in ALLOWED_USERS
+
+
+def check_admin_permission(user_id: int) -> bool:
+    """Check if user is admin"""
+    if not ALLOWED_ADMIN_USERS:
+        return False  # No admin configured
+    return str(user_id) in ALLOWED_ADMIN_USERS or "*" in ALLOWED_ADMIN_USERS
 
 
 async def call_claudio(message: str, user_id: int, user_name: str, clear_history: bool = False) -> str:
@@ -153,6 +162,264 @@ async def clear_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         await update.message.reply_text(f"⚠️ Failed to clear history: {str(e)}")
 
 
+# ============================================
+# ADMIN COMMANDS
+# ============================================
+
+async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Show current model status"""
+    if not check_admin_permission(update.effective_user.id):
+        await update.message.reply_text("⛔ You don't have admin permission.")
+        return
+
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            response = await client.post(
+                f"{CLADIO_SERVER_URL}/api/admin/status",
+                json={"user_id": update.effective_user.id}
+            )
+            response.raise_for_status()
+            data = response.json()
+
+        status_text = (
+            f"📊 *Model Status*\n\n"
+            f"Provider: {data['current_provider']}\n"
+            f"Model: {data['current_model']}\n"
+            f"Auto-fallback: {'✅ Enabled' if data['auto_fallback'] else '❌ Disabled'}\n\n"
+            f"*Available Providers:*\n"
+        )
+
+        for provider in data['available_providers']:
+            status_text += f"• {provider}\n"
+
+        if data.get('custom_model'):
+            custom = data['custom_model']
+            status_text += f"\n*Custom Model:*\n• Name: {custom['name']}\n• Configured: {'✅' if custom['configured'] else '❌'}\n"
+
+        await update.message.reply_text(status_text, parse_mode='Markdown')
+
+    except Exception as e:
+        await update.message.reply_text(f"❌ Failed to get status: {str(e)}")
+
+
+async def models_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """List all available models"""
+    if not check_admin_permission(update.effective_user.id):
+        await update.message.reply_text("⛔ You don't have admin permission.")
+        return
+
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            response = await client.post(
+                f"{CLADIO_SERVER_URL}/api/admin/list-models",
+                json={"user_id": update.effective_user.id}
+            )
+            response.raise_for_status()
+            data = response.json()
+
+        models_text = f"📋 *Available Models*\n\nCurrent mode: *{data['current_mode']}*\n\n"
+
+        for provider_key, provider_info in data['providers'].items():
+            status = "✅" if provider_info['configured'] else "❌"
+            models_text += f"{status} *{provider_info['name']}*\n"
+
+            if provider_info.get('current_model'):
+                models_text += f"  Current: {provider_info['current_model']}\n"
+
+            if provider_info.get('models'):
+                models_text += f"  Available: {', '.join(provider_info['models'][:3])}"
+                if len(provider_info['models']) > 3:
+                    models_text += f" (+{len(provider_info['models'])-3} more)"
+                models_text += "\n"
+
+            if provider_key == 'ollama' and provider_info.get('base_url'):
+                models_text += f"  Base URL: {provider_info['base_url']}\n"
+
+            models_text += "\n"
+
+        await update.message.reply_text(models_text, parse_mode='Markdown')
+
+    except Exception as e:
+        await update.message.reply_text(f"❌ Failed to list models: {str(e)}")
+
+
+async def switch_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Switch to a different model"""
+    if not check_admin_permission(update.effective_user.id):
+        await update.message.reply_text("⛔ You don't have admin permission.")
+        return
+
+    args = context.args if hasattr(context, 'args') else []
+
+    if not args:
+        await update.message.reply_text(
+            "🔄 *Switch Model*\n\n"
+            "Usage: /switch <provider> [<model>]\n\n"
+            "Available providers:\n"
+            "• anthropic\n"
+            "• openai\n"
+            "• gemini\n"
+            "• qwen\n"
+            "• deepseek\n"
+            "• ollama\n\n"
+            "Example: /switch anthropic\n"
+            "Example: /switch openai gpt-4o"
+        )
+        return
+
+    try:
+        new_provider = args[0]
+        new_model = args[1] if len(args) > 1 else None
+
+        async with httpx.AsyncClient(timeout=10) as client:
+            response = await client.post(
+                f"{CLADIO_SERVER_URL}/api/admin/switch-model",
+                json={
+                    "user_id": update.effective_user.id,
+                    "new_provider": new_provider,
+                    "new_model": new_model
+                }
+            )
+            response.raise_for_status()
+            data = response.json()
+
+        if data.get("requires_restart"):
+            await update.message.reply_text(
+                f"⚠️ {data['message']}\n\n"
+                f"Para cambiar de modelo, edita el archivo .env en tu servidor:\n"
+                f"AI_PROVIDER={new_provider}\n"
+                f"Luego reinicia el servidor:\n"
+                f"sudo systemctl restart claudio-server"
+            )
+        else:
+            await update.message.reply_text(f"✅ {data['message']}")
+
+    except Exception as e:
+        await update.message.reply_text(f"❌ Failed to switch model: {str(e)}")
+
+
+async def addmodel_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Add a custom model"""
+    if not check_admin_permission(update.effective_user.id):
+        await update.message.reply_text("⛔ You don't have admin permission.")
+        return
+
+    args = context.args if hasattr(context, 'args') else []
+
+    if len(args) < 3:
+        await update.message.reply_text(
+            "➕ *Add Custom Model*\n\n"
+            "Usage: /addmodel <name> <api_key> <base_url> [provider_type]\n\n"
+            "Parameters:\n"
+            "• name - Model name (ej: mi-modelo-custom)\n"
+            "• api_key - Your API key\n"
+            "• base_url - API base URL (ej: https://api.example.com/v1)\n"
+            "• provider_type - openai or anthropic (default: openai)\n\n"
+            "Example:\n"
+            "/addmodel mi-modelo sk-... https://api.example.com/v1 openai\n\n"
+            "Note: El modo multi-provider debe estar activo en el servidor"
+        )
+        return
+
+    try:
+        name = args[0]
+        api_key = args[1]
+        base_url = args[2]
+        provider_type = args[3] if len(args) > 3 else "openai"
+
+        async with httpx.AsyncClient(timeout=10) as client:
+            response = await client.post(
+                f"{CLADIO_SERVER_URL}/api/admin/add-custom-model",
+                json={
+                    "user_id": update.effective_user.id,
+                    "name": name,
+                    "api_key": api_key,
+                    "base_url": base_url,
+                    "provider_type": provider_type
+                }
+            )
+            response.raise_for_status()
+            data = response.json()
+
+        if data.get("requires_multi_provider"):
+            await update.message.reply_text(
+                f"⚠️ {data['message']}\n\n"
+                f"Para agregar modelos custom, activa multi-provider en .env:\n"
+                f"AI_PROVIDER=multi\n"
+                f"Y reinicia el servidor."
+            )
+        else:
+            available = data.get('available_providers', [])
+            await update.message.reply_text(
+                f"✅ {data['message']}\n\n"
+                f"Proveedores disponibles: {', '.join(available)}"
+            )
+
+    except Exception as e:
+        await update.message.reply_text(f"❌ Failed to add custom model: {str(e)}")
+
+
+async def test_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Test current model availability"""
+    if not check_admin_permission(update.effective_user.id):
+        await update.message.reply_text("⛔ You don't have admin permission.")
+        return
+
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            response = await client.post(
+                f"{CLADIO_SERVER_URL}/api/admin/test-model",
+                json={"user_id": update.effective_user.id}
+            )
+            response.raise_for_status()
+            data = response.json()
+
+        status_emoji = "✅" if data['available'] else "❌"
+
+        test_text = (
+            f"🧪 *Model Test*\n\n"
+            f"{status_emoji} Status: {data['status']}\n"
+            f"Provider: {data['provider']}\n"
+            f"Model: {data['model']}\n"
+        )
+
+        if data.get('error'):
+            test_text += f"\n❌ Error: {data['error']}"
+
+        await update.message.reply_text(test_text, parse_mode='Markdown')
+
+    except Exception as e:
+        await update.message.reply_text(f"❌ Failed to test model: {str(e)}")
+
+
+async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Show admin help"""
+    if not check_admin_permission(update.effective_user.id):
+        await update.message.reply_text("⛔ You don't have admin permission.")
+        return
+
+    admin_text = (
+        "⚙️ *Admin Commands*\n\n"
+        "*Model Management:*\n"
+        "/status - Show current model status\n"
+        "/models - List all available models\n"
+        "/switch <provider> - Switch to different provider\n"
+        "/addmodel <name> <key> <url> [type] - Add custom model\n"
+        "/test - Test current model availability\n\n"
+        "*System Commands:*\n"
+        "/health - Check server health\n"
+        "/clear - Clear conversation history\n"
+        "/help - Show this help\n\n"
+        "*Available Providers:*\n"
+        "anthropic, openai, gemini, qwen, deepseek, ollama\n\n"
+        "*Provider Types for Custom Models:*\n"
+        "openai (default) - For OpenAI-compatible APIs\n"
+        "anthropic - For Anthropic-compatible APIs"
+    )
+
+    await update.message.reply_text(admin_text, parse_mode='Markdown')
+
+
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle incoming messages"""
     user_id = update.effective_user.id
@@ -208,6 +475,15 @@ def main() -> None:
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("health", health_command))
     application.add_handler(CommandHandler("clear", clear_command))
+
+    # Admin commands
+    application.add_handler(CommandHandler("status", status_command))
+    application.add_handler(CommandHandler("models", models_command))
+    application.add_handler(CommandHandler("switch", switch_command))
+    application.add_handler(CommandHandler("addmodel", addmodel_command))
+    application.add_handler(CommandHandler("test", test_command))
+    application.add_handler(CommandHandler("admin", admin_command))
+
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
     # Start bot
