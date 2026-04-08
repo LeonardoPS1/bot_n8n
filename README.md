@@ -71,6 +71,8 @@ This guide includes:
 | Gemini API Key | [ai.google.dev](https://ai.google.dev/) - Create API Key |
 | Qwen API Key | [dashscope.aliyun.com](https://dashscope.aliyun.com/) - API Keys |
 | DeepSeek API Key | [platform.deepseek.com](https://platform.deepseek.com/) - API Keys |
+| n8n API Key | Your n8n Instance - Settings → API |
+| Your User ID | [@userinfobot](https://t.me/userinfobot) - `/start` |
 
 ### Environment Variables (.env)
 
@@ -227,6 +229,22 @@ Would you like me to help you configure a Slack node?
 | **Debug Issues** | Troubleshoot workflow problems |
 | **Explain Concepts** | Teach n8n best practices |
 | **Template Access** | Search 2,709+ workflow templates |
+
+### 🎯 7 Specialized Skills
+
+Claudio includes 7 expert skills that activate automatically:
+
+| Skill | Expertise |
+|-------|-----------|
+| **Expression Syntax** | Validates `{{}}` patterns, $json, $node variables |
+| **MCP Tools** | Tool selection, smart parameters, validation profiles |
+| **Workflow Patterns** | 5 proven patterns from 2,700+ templates |
+| **Validation** | Error catalog, false positives, solutions |
+| **Node Configuration** | Property dependencies, AI connections |
+| **JavaScript Code** | Data access, return format, common errors |
+| **Python Code** | Limitations, standard library, workarounds |
+
+> 💡 **Access skills via API:** `GET /api/skills` or `GET /api/skills/{skill_name}`
 
 ---
 

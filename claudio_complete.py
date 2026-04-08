@@ -51,6 +51,17 @@ from n8n_database import (
     N8N_VALIDATION_PROFILES, N8N_EXPRESSION_PATTERNS, N8N_COMMON_ISSUES
 )
 
+# Import specialized skills
+from skills.n8n_expression_syntax import ExpressionSyntaxExpert
+from skills.n8n_other_skills import (
+    MCPToolsExpert,
+    WorkflowPatternsExpert,
+    ValidationExpert,
+    NodeConfigExpert,
+    CodeJavaScriptExpert,
+    CodePythonExpert
+)
+
 # Configure logging
 file_handler = logging.FileHandler('claudio_complete.log', encoding='utf-8')
 file_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
@@ -958,13 +969,58 @@ async def analyze_and_use_tools(message: str) -> Dict[str, Any]:
 
 @app.get("/api/tools")
 async def list_tools():
-    """List available tools"""
+    """List available tools and skills"""
     return {
         "n8n_api": ["list_workflows", "get_workflow", "create_workflow", "update_workflow", "activate_workflow"],
         "database": ["search_nodes", "get_node", "validate_node", "search_templates", "validate_expression"],
+        "skills": [
+            {
+                "name": "expression_syntax",
+                "description": "Validates n8n expression syntax and fixes common errors",
+                "expert": "ExpressionSyntaxExpert",
+                "features": ["validate_expression", "suggest_correction", "explain_syntax", "get_examples"]
+            },
+            {
+                "name": "mcp_tools",
+                "description": "Expert guide for using n8n-MCP MCP tools effectively",
+                "expert": "MCPToolsExpert",
+                "features": ["tool_selection", "smart_parameters", "validation_profiles"]
+            },
+            {
+                "name": "workflow_patterns",
+                "description": "Proven n8n workflow patterns from real workflows",
+                "expert": "WorkflowPatternsExpert",
+                "features": ["core_patterns", "connection_rules", "use_cases"]
+            },
+            {
+                "name": "validation",
+                "description": "Workflow validation and error interpretation",
+                "expert": "ValidationExpert",
+                "features": ["error_catalog", "false_positives", "solutions"]
+            },
+            {
+                "name": "node_configuration",
+                "description": "Operation-aware node configuration guidance",
+                "expert": "NodeConfigExpert",
+                "features": ["property_dependencies", "ai_connection_types", "common_issues"]
+            },
+            {
+                "name": "code_javascript",
+                "description": "JavaScript code best practices for n8n Code nodes",
+                "expert": "CodeJavaScriptExpert",
+                "features": ["data_access", "return_format", "builtin_functions", "common_errors"]
+            },
+            {
+                "name": "code_python",
+                "description": "Python code limitations and workarounds for n8n",
+                "expert": "CodePythonExpert",
+                "features": ["standard_library", "http_workarounds", "limitations"]
+            }
+        ],
         "stats": {
             "nodes_total": len(n8n_tools.nodes),
             "templates_total": len(n8n_tools.templates),
+            "skills_total": 7,
             "ai_provider": AI_PROVIDER,
             "ai_model": ai_provider.model
         }
@@ -997,6 +1053,85 @@ async def validate_expression_api(request: Dict[str, str]):
     expression = request.get("expression")
     context = request.get("context", "")
     return await n8n_tools.validate_expression(expression, context)
+
+
+@app.get("/api/skills")
+async def list_skills():
+    """List all available skills with details"""
+    return {
+        "skills": {
+            "expression_syntax": {
+                "name": "Expression Syntax Expert",
+                "description": "Validates n8n expression syntax and fixes common errors",
+                "patterns": ExpressionSyntaxExpert.PATTERNS,
+                "common_errors": ExpressionSyntaxExpert.COMMON_ERRORS
+            },
+            "mcp_tools": {
+                "name": "MCP Tools Expert",
+                "description": "Expert guide for using n8n-MCP MCP tools effectively",
+                "tool_selection": MCPToolsExpert.TOOL_SELECTION_GUIDE,
+                "smart_parameters": MCPToolsExpert.SMART_PARAMETERS
+            },
+            "workflow_patterns": {
+                "name": "Workflow Patterns Expert",
+                "description": "Proven n8n workflow patterns from real workflows",
+                "patterns": WorkflowPatternsExpert.CORE_PATTERNS,
+                "rules": WorkflowPatternsExpert.CONNECTION_RULES
+            },
+            "validation": {
+                "name": "Validation Expert",
+                "description": "Workflow validation and error interpretation",
+                "error_catalog": ValidationExpert.ERROR_CATALOG,
+                "false_positives": ValidationExpert.FALSE_POSITIVES
+            },
+            "node_configuration": {
+                "name": "Node Configuration Expert",
+                "description": "Operation-aware node configuration guidance",
+                "dependencies": NodeConfigExpert.PROPERTY_DEPENDENCIES,
+                "ai_connections": NodeConfigExpert.AI_CONNECTION_TYPES
+            },
+            "code_javascript": {
+                "name": "JavaScript Code Expert",
+                "description": "JavaScript code best practices for n8n Code nodes",
+                "patterns": CodeJavaScriptExpert.DATA_ACCESS_PATTERNS,
+                "common_errors": CodeJavaScriptExpert.TOP_5_ERRORS
+            },
+            "code_python": {
+                "name": "Python Code Expert",
+                "description": "Python code limitations and workarounds for n8n",
+                "limitation": CodePythonExpert.CRITICAL_LIMITATION,
+                "workarounds": CodePythonExpert.HTTP_WORKAROUNDS
+            }
+        },
+        "total": 7
+    }
+
+
+@app.get("/api/skills/{skill_name}")
+async def get_skill_details(skill_name: str):
+    """Get details for a specific skill"""
+    skill_map = {
+        "expression_syntax": ExpressionSyntaxExpert,
+        "mcp_tools": MCPToolsExpert,
+        "workflow_patterns": WorkflowPatternsExpert,
+        "validation": ValidationExpert,
+        "node_configuration": NodeConfigExpert,
+        "code_javascript": CodeJavaScriptExpert,
+        "code_python": CodePythonExpert
+    }
+
+    if skill_name not in skill_map:
+        raise HTTPException(status_code=404, detail=f"Skill '{skill_name}' not found")
+
+    skill_class = skill_map[skill_name]
+
+    # Return skill information
+    return {
+        "name": skill_name,
+        "class": skill_class.__name__,
+        "doc": skill_class.__doc__,
+        "attributes": [attr for attr in dir(skill_class) if not attr.startswith('_')]
+    }
 
 
 def main():

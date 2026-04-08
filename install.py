@@ -175,6 +175,32 @@ def print_installation_guide():
     print(f"{Colors.MAGENTA}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━{Colors.END}")
     print()
 
+    # Información sobre Skills
+    print(f"{Colors.BOLD}🎓 SKILLS ESPECIALIZADAS INCLUIDAS:{Colors.END}\n")
+    print(f"{Colors.CYAN}Claudio incluye 7 skills especializadas que se activan automáticamente:{Colors.END}\n")
+
+    skills_info = [
+        ("Expression Syntax", "Valida expresiones n8n: {{$json.body}}, {{$node['Name']}}"),
+        ("MCP Tools", "Guía de uso de herramientas n8n-MCP"),
+        ("Workflow Patterns", "5 patrones probados de 2,700+ templates"),
+        ("Validation Expert", "Catálogo de errores y soluciones"),
+        ("Node Configuration", "Dependencias de propiedades de nodos"),
+        ("JavaScript Code", "Mejores prácticas para Code nodes"),
+        ("Python Code", "Limitaciones y workarounds")
+    ]
+
+    for skill, description in skills_info:
+        print(f"  {Colors.GREEN}•{Colors.END} {Colors.BOLD}{skill}{Colors.END}")
+        print(f"    {Colors.CYAN}{description}{Colors.CYAN}")
+        print()
+
+    print(f"{Colors.YELLOW}💡 Las skills se activan automáticamente según tu conversación{Colors.END}")
+    print(f"{Colors.YELLOW}   También puedes acceder vía API: GET /api/skills{Colors.END}")
+    print()
+
+    print(f"{Colors.MAGENTA}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━{Colors.END}")
+    print()
+
     ready = ask_yes_no("¿Estás listo para comenzar la instalación?", default=True)
     if not ready:
         print_info("Puedes obtener las credenciales necesarias y ejecutar este instalador nuevamente.")

@@ -20,6 +20,7 @@
 6. [Prueba de Funcionamiento](#6-prueba-de-funcionamiento)
 7. [Solución de Problemas](#7-solución-de-problemas)
 8. [Preguntas Frecuentes](#8-preguntas-frecuentes)
+9. [Skills y MCP Tools](#9-skills-y-mcp-tools)
 
 ---
 
@@ -1119,6 +1120,284 @@ Este proyecto está licenciado bajo la MIT License - ver el archivo LICENSE para
 
 ---
 
+## 9. SKILLS Y MCP TOOLS
+
+Claudio incluye **7 skills especializadas** que le permiten proporcionar asistencia experta en n8n. Estas skills se activan automáticamente según el contexto de la conversación.
+
+### 9.1 Expression Syntax Expert
+
+**Propósito:** Validar expresiones de n8n y corregir errores comunes
+
+**Cuándo se activa:**
+- Escribes expresiones con `{{}}`
+- Usas variables como `$json`, `$node`, `$env`
+- Mencionas "expresión", "expression", "validar"
+
+**Capacidades:**
+```python
+# Validar expresiones
+validate_expression("{{$json.body.user.email}}", context="webhook")
+
+# Explicar qué hace una expresión
+explain_syntax("{{$node['HTTP Request'].json.result}}")
+
+# Sugerir correcciones
+suggest_correction("$json.field", "webhook_direct_access")
+# Devuelve: "$json.body.field"
+```
+
+**Errores comunes que detecta:**
+- ❌ `$json.field` en webhooks → ✅ `$json.body.field`
+- ❌ `$node.Node Name` → ✅ `$node["Node Name"]`
+- ❌ `$json.items.0` → ✅ `$json.items[0]`
+
+---
+
+### 9.2 MCP Tools Expert
+
+**Propósito:** Guía para usar las herramientas n8n-MCP efectivamente
+
+**Cuándo se activa:**
+- Preguntas sobre nodos, tools, búsqueda
+- Configuración de nodos
+- Validación de workflows
+
+**Capacidades:**
+- Guía de selección de herramientas según tarea
+- Parámetros inteligentes (branch, sendBody, etc.)
+- Perfiles de validación (minimal, runtime, ai-friendly, strict)
+
+**Parámetros Smart:**
+| Nodo | Parámetro | Valor Smart | Nota |
+|------|-----------|-------------|-------|
+| IF | branch | `true`/`false` | Requerido para conexiones |
+| HTTP Request | sendBody | `true` | Crítico para POST/PUT |
+| Code | mode | `runOnceForAllItems` | Procesamiento eficiente |
+| Webhook | responseMode | `lastNode` | Esperar workflow completo |
+
+---
+
+### 9.3 Workflow Patterns Expert
+
+**Propósito:** Patrones de workflow comprobados desde 2,700+ templates
+
+**Patrones Principales:**
+
+| Patrón | Flujo | Caso de Uso | Complejidad |
+|--------|-------|-------------|-------------|
+| **Webhook Processing** | Webhook → Parse → Process → Response | APIs, webhooks | Media |
+| **HTTP API Integration** | Schedule → HTTP → Process → Notify | Llamadas periódicas | Simple |
+| **Database Operations** | Trigger → Query → Transform → Update | CRUD, migración | Media |
+| **AI Agent** | Trigger → AI Agent → Tools → Response | Asistentes, chatbots | Avanzada |
+| **Batch Processing** | Trigger → Split → Process → Aggregate | Operaciones bulk | Avanzada |
+
+**Reglas de Conexión:**
+- IF node: Usa `branch="true"` o `branch="false"` para TRUE/FALSE
+- Webhook: Solo `respondToWebhook` puede enviar respuesta
+- AI Streaming: Incompatible con Switch, IF, o Merge
+- Split Batches: Configura batch size y reset para loops
+
+---
+
+### 9.4 Validation Expert
+
+**Propósito:** Interpretación de errores de validación y soluciones
+
+**Catálogo de Errores:**
+
+| Error | Causa | Solución |
+|-------|-------|----------|
+| NODE_MISSING | Tipo de nodo no encontrado | Verifica spelling, instalación |
+| REQUIRED_FIELD | Parámetro requerido faltante | Revisa documentación del nodo |
+| EXPRESSION_ERROR | Sintaxis de expresión inválida | Usa `$json.body`, `$node['Name']` |
+| CONNECTION_ERROR | Conexión de nodo inválida | Verifica sourcePort/targetPort |
+| CREDENTIAL_ERROR | Credencial inválida o faltante | Verifica permisos |
+
+**Falsos Positivos Comunes:**
+- Warning de "deprecated" → El nodo aún funciona
+- Output "unused" → Puede usarse condicionalmente
+- Expresión "compleja" → Sintaxis válida
+
+---
+
+### 9.5 Node Configuration Expert
+
+**Propósito:** Configuración de nodos consciente de operaciones
+
+**Dependencias de Propiedades:**
+
+**HTTP Request:**
+```
+sendBody → requiere POST/PUT/PATCH
+          → afecta contentType
+sendBody=true es CRÍTICO (60%+ de fallos)
+```
+
+**Slack:**
+```
+channel → Requiere ID, no nombre
+         → Usa 'List Channels' operation
+```
+
+**Code:**
+```
+mode → Afecta procesamiento de items
+      → runOnceForAllItems o runOnceForEachItem
+language → javaScript o python
+```
+
+**Tipos de Conexión AI:**
+- 8 tipos para workflows AI Agent
+- Streaming incompatible con control de flujo
+- Vector store requiere modelo de embeddings
+- Tool connections deben match proveedor AI
+
+---
+
+### 9.6 JavaScript Code Expert
+
+**Propósito:** Mejores prácticas para JavaScript en nodos Code
+
+**Patrones de Acceso a Datos:**
+```javascript
+// Todos los items
+$input.all()
+
+// Primer item
+$input.first()
+
+// Item individual
+$input.item.json
+
+// Item por índice
+$input.item(0).json
+```
+
+**Formato de Return:**
+```javascript
+// CORRECTO
+return [{json: {...}}];
+
+// INCORRECTO
+return {json: {...}};
+return [...];
+```
+
+**Funciones Built-in:**
+- `$helpers.httpRequest(url, options)` - HTTP request
+- `$helpers.dateTime(zone)` - Datetime actual
+- `$jmespath(data, expression)` - Query JMESPath
+- `$helpers.formatDateTime(date, format)` - Formatear datetime
+
+**Top 5 Errores:**
+1. ❌ Olvidar `return` → ✅ Siempre `return [{json: {...}}]`
+2. ❌ Array sin wrapper `json` → ✅ `[{json: {...}}]`
+3. ❌ `await` sin `async` → ✅ Usa funciones async o promesas
+4. ❌ `{json: {...}}` sin array → ✅ Envuelve en array
+5. ❌ Propiedad undefined → ✅ Verifica si existe antes de acceder
+
+---
+
+### 9.7 Python Code Expert
+
+**Propósito:** Limitaciones y workarounds para Python en nodos Code
+
+**Limitación CRÍTICA:**
+```
+⚠️ NO hay librerías externas: requests, pandas, numpy
+```
+
+**Librería Standard Disponible:**
+| Librería | Uso |
+|----------|-----|
+| `json` | Encoding/decoding JSON |
+| `datetime` | Operaciones fecha/hora |
+| `re` | Expresiones regulares |
+| `base64` | Encoding/decoding Base64 |
+| `hashlib` | Funciones hash |
+| `uuid` | Generación UUID |
+| `urllib` | HTTP básico (limitado) |
+| `http.client` | HTTP client (limitado) |
+
+**Workarounds:**
+```python
+# NO requests disponible
+# Usa $helpers.httpRequest() en su lugar
+
+# NO pandas disponible
+# Procesa JSON manualmente con loops
+
+# NO numpy disponible
+# Usa listas y comprehensions de Python
+```
+
+---
+
+### 9.8 Acceso a Skills desde la API
+
+Puedes acceder a las skills directamente desde la API de Claudio:
+
+```bash
+# Listar todas las skills
+curl http://localhost:8000/api/skills
+
+# Obtener detalles de una skill específica
+curl http://localhost:8000/api/skills/expression_syntax
+
+# Validar expresión usando skill
+curl -X POST http://localhost:8000/api/validate/expression \
+  -H "Content-Type: application/json" \
+  -d '{"expression": "{{$json.body.email}}", "context": "webhook"}'
+```
+
+**Respuesta de /api/skills:**
+```json
+{
+  "skills": {
+    "expression_syntax": {
+      "name": "Expression Syntax Expert",
+      "patterns": {...},
+      "common_errors": {...}
+    },
+    "mcp_tools": {...},
+    "workflow_patterns": {...},
+    ...
+  },
+  "total": 7
+}
+```
+
+---
+
+### 9.9 Skills en Conversación
+
+Las skills se activan automáticamente según tu conversación:
+
+```
+Tú: "Valida esta expresión: {{$json.data.user.email}}"
+Claudio: [Expression Syntax Expert activa]
+       La expresión es válida ✓
+       - Accede al campo email dentro de data
+       - Formato correcto de notación de puntos
+
+Tú: "¿Cómo creo un workflow de webhook?"
+Claudio: [Workflow Patterns Expert activa]
+       Te mostraré el patrón de Webhook Processing:
+       1. Webhook Trigger
+       2. Set Node
+       3. Code/Process
+       4. Response
+
+Tú: "Ayuda con un nodo HTTP Request"
+Claudio: [MCP Tools Expert + Node Config Expert activan]
+       Para HTTP Request recuerda:
+       - sendBody=true para POST/PUT
+       - Configura authentication si es necesario
+       - Verifica URL y method
+```
+
+---
+
 ## CHEAT SHEET RÁPIDO
 
 ### Comandos Básicos VPS
@@ -1159,6 +1438,9 @@ curl http://localhost:8000/health
 | Telegram Token | @BotFather |
 | Anthropic Key | console.anthropic.com |
 | OpenAI Key | platform.openai.com |
+| Gemini Key | ai.google.dev |
+| Qwen Key | dashscope.aliyun.com |
+| DeepSeek Key | platform.deepseek.com |
 | n8n Key | Settings → API en n8n |
 | Tu User ID | @userinfobot |
 
