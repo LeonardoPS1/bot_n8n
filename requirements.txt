@@ -1,0 +1,43 @@
+# ============================================
+# Claudio Bot - Python Dependencies
+# ============================================
+
+# Core Telegram Bot
+python-telegram-bot==21.0
+
+# ============================================
+# AI Providers (choose one or install all)
+# ============================================
+
+# Anthropic (Claude) - Primary provider
+anthropic==0.40.0
+
+# OpenAI (optional, for multi-provider setup)
+openai>=1.0.0
+
+# ============================================
+# Server & API
+# ============================================
+
+# FastAPI server
+fastapi==0.115.0
+uvicorn[standard]==0.32.0
+
+# HTTP client
+httpx==0.27.2
+
+# Data validation
+pydantic==2.9.2
+
+# ============================================
+# Configuration & Utilities
+# ============================================
+
+# Environment variables
+python-dotenv==1.0.0
+
+# Optional: For async operations
+asyncio==3.4.3
+
+# Optional: For additional HTTP features
+requests>=2.31.0
