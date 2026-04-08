@@ -1,0 +1,74 @@
+================================
+ACTUALIZAR VPS - PASOS MANUALES
+================================
+
+Metodo 1: PowerShell (MAS FACIL)
+=================================
+
+1. Abre PowerShell
+2. Copia y pega esto:
+
+$password = ConvertTo-SecureString "Cool220479..@" -AsPlainText -Force
+$credential = New-Object System.Management.Automation.PSCredential ("ubuntu", $password)
+$session = New-SSHSession -ComputerName 51.222.207.250 -Credential $credential -AcceptKey
+Invoke-SSHCommand -SessionId $session.SessionId -Command "cd /opt/claudio-bot && git pull origin master && sudo systemctl restart claudio-server && sudo systemctl restart claudio-telegram-bot"
+
+NOTA: Si no tienes Posh-SSH, usa Metodo 2
+
+=========================================
+Metodo 2: CMD / Bat (EJECUTAR AHORA)
+=========================================
+
+1. Doble clic en: ACTUALIZAR_VPS_AHORA.bat
+2. Cuando pida contraseña, escribe: Cool220479..@
+
+=========================================
+Metodo 3: Manual SSH
+=========================================
+
+1. Abre PowerShell o CMD
+2. Escribe:
+   ssh ubuntu@51.222.207.250
+
+3. Cuando pida contraseña, escribe: Cool220479..@
+
+4. Ejecuta estos comandos:
+   cd /opt/claudio-bot
+   git pull origin master
+   sudo systemctl restart claudio-server
+   sudo systemctl restart claudio-telegram-bot
+
+5. Para verificar estado:
+   sudo systemctl status claudio-server
+   sudo systemctl status claudio-telegram-bot
+
+=========================================
+Metodo 4: Putty (Si lo tienes instalado)
+=========================================
+
+1. Abre Putty
+2. Host: 51.222.207.250
+3. Port: 22
+4. Username: ubuntu
+5. Password: Cool220479..@
+
+6. Ejecuta:
+   cd /opt/claudio-bot
+   git pull origin master
+   sudo systemctl restart claudio-server
+   sudo systemctl restart claudio-telegram-bot
+
+=========================================
+DESPUES DE ACTUALIZAR
+=========================================
+
+Prueba el bot en Telegram:
+- HOLA
+- /status
+- LISTA LOS WORKFLOWS
+- ELIMINA TODOS LOS WORKFLOWS
+
+El bot ahora deberia:
+✓ Confirmar cada accion realizada
+✓ Mostrar "✅ WORKFLOWS ELIMINADOS: X"
+✓ No tener timeouts intermitentes
