@@ -178,12 +178,14 @@ class AnthropicProvider(AIProvider):
 
 
 class OpenAIProvider(AIProvider):
-    """OpenAI GPT provider"""
+    """OpenAI GPT provider with async support"""
 
     def __init__(self, api_key: str, model: str = 'gpt-4o'):
         super().__init__(api_key, model)
         if OPENAI_AVAILABLE and api_key:
             self.client = OpenAI(api_key=api_key)
+        else:
+            self.client = None
 
     async def chat(self, messages: List[Dict[str, str]], system_prompt: str) -> str:
         if not self.client:
@@ -192,10 +194,17 @@ class OpenAIProvider(AIProvider):
         # Add system prompt as first message
         all_messages = [{"role": "system", "content": system_prompt}] + messages
 
-        response = self.client.chat.completions.create(
-            model=self.model,
-            messages=all_messages,
-            max_tokens=4096
+        # Run in thread pool to avoid blocking event loop
+        import asyncio
+        loop = asyncio.get_event_loop()
+        response = await loop.run_in_executor(
+            None,
+            lambda: self.client.chat.completions.create(
+                model=self.model,
+                messages=all_messages,
+                max_tokens=4096,
+                timeout=30.0  # 30 second timeout for OpenAI API
+            )
         )
 
         return response.choices[0].message.content
@@ -815,6 +824,29 @@ When users ask about n8n:
 4. Suggest validation steps
 5. Offer to create/modify workflows
 
+## ACTION CONFIRMATION (CRITICAL)
+
+When you execute ANY action through tools, you MUST:
+
+1. **Confirm what you did**: "He eliminado X workflows"
+2. **Report success/failure clearly**: "✓ Completado" or "✗ Error: razón"
+3. **Provide details**: List what was done, what worked, what failed
+4. **Never stay silent**: Always acknowledge user requests
+
+### Action Confirmation Format:
+```
+✅ ACCIÓN COMPLETADA: [acción realizada]
+- Eliminados: 5 workflows
+- Errores: 0
+- Detalles: [lista de resultados]
+```
+
+```
+❌ ACCIÓN FALLIDA: [acción intentada]
+- Error: [razón del error]
+- Solución: [qué hacer]
+```
+
 You communicate through Telegram. Be practical and precise. Focus on working solutions.
 """
 
@@ -1226,14 +1258,49 @@ async def chat(request: ChatRequest):
         # Add tool context to the user message so AI can use it
         final_message = enhanced_message
         if tool_context:
-            context_info = "\\n\\n[Tool Results]\\n"
-            if "workflows" in tool_context:
+            context_info = "\n\n[Acciones Ejecutadas]\n"
+
+            # Format deletion results clearly
+            if "workflows_deleted" in tool_context:
+                deleted = tool_context["workflows_deleted"]
+                if "error" in deleted:
+                    context_info += f"❌ ERROR ELIMINANDO WORKFLOWS: {deleted['error']}\n"
+                else:
+                    count = deleted.get('count', 0)
+                    results = deleted.get('results', [])
+                    context_info += f"✅ WORKFLOWS ELIMINADOS: {count} eliminados correctamente\n"
+                    if results:
+                        context_info += "Resultados:\n"
+                        for r in results[:10]:  # Max 10 results
+                            context_info += f"  {r}\n"
+
+            # Format workflow list
+            if "workflows" in tool_context and "workflows_deleted" not in tool_context:
                 wf = tool_context["workflows"]
-                context_info += f"- You have access to {wf.get('count', 0)} workflows\\n"
+                count = wf.get('count', 0)
+                context_info += f"📋 WORKFLOWS ENCONTRADOS: {count} workflows\n"
+                recent = wf.get('recent', [])
+                if recent:
+                    context_info += "Workflows recientes:\n"
+                    for w in recent[:5]:
+                        context_info += f"  - {w.get('name', 'Unknown')} (ID: {w.get('id', 'N/A')})\n"
+
+            # Format node search
             if "nodes" in tool_context:
                 nodes = tool_context["nodes"]
-                context_info += f"- Found {len(nodes) if isinstance(nodes, list) else 'several'} nodes\\n"
-            context_info += f"\\nFull context: {json.dumps(tool_context, ensure_ascii=False)}\\n"
+                count = nodes.get('found', 0) if isinstance(nodes, dict) else len(nodes) if isinstance(nodes, list) else 0
+                context_info += f"🔍 NODOS ENCONTRADOS: {count} nodos\n"
+
+            # Format template search
+            if "templates" in tool_context:
+                templates = tool_context["templates"]
+                count = len(templates) if isinstance(templates, list) else 0
+                context_info += f"📄 TEMPLATES ENCONTRADOS: {count} templates\n"
+
+            # Add any errors
+            if "workflows_error" in tool_context:
+                context_info += f"⚠️ ERROR: {tool_context['workflows_error']}\n"
+
             final_message = enhanced_message + context_info
 
         # Update the last message with tool context
