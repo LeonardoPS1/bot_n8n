@@ -4,7 +4,7 @@
 
 ---
 
-**Versión:** 4.1
+**Versión:** 4.2
 **Fecha:** Abril 2026
 **Repositorio:** https://github.com/LeonardoPS1/bot_n8n
 
@@ -27,7 +27,7 @@
 
 ### ¿Qué es Claudio Bot?
 
-**Claudio Bot** es un asistente inteligente para Telegram especializado en la automatización con n8n. Powered por IA (Anthropic Claude o OpenAI GPT-4), Claudio te ayuda a:
+**Claudio Bot** es un asistente inteligente para Telegram especializado en la automatización con n8n. Powered por IA (Claude, GPT-4, Gemini, Qwen, o DeepSeek), Claudio te ayuda a:
 
 - ✅ Crear workflows de n8n desde descripciones en lenguaje natural
 - ✅ Validar expresiones de n8n y corregir errores
@@ -40,9 +40,9 @@
 
 | Característica | Descripción |
 |----------------|-------------|
-| 🧠 **IA Avanzada** | Claude 3.5 Sonnet o GPT-4 para comprensión técnica |
+| 🧠 **IA Avanzada** | Claude, GPT-4, Gemini, Qwen, o DeepSeek para comprensión técnica |
 | 📊 **Base de Datos n8n** | Acceso a 1,396 nodos y 2,709+ plantillas |
-| 🔧 **Multi-Proveedor** | Anthropic, OpenAI, Ollama o múltiples |
+| 🔧 **Multi-Proveedor** | 6 proveedores de IA con fallback automático |
 | 🐳 **Docker Ready** | Despliegue fácil con contenedores |
 | 🔒 **Seguro** | Restricción por usuario de Telegram |
 | 🚀 **Auto-Scaling** | Listo para VPS y producción |
@@ -74,6 +74,9 @@
        │
        ├──► Anthropic API (Claude)
        ├──► OpenAI API (GPT-4)
+       ├──► Google Gemini API
+       ├──► Alibaba Qwen API
+       ├──► DeepSeek API
        ├──► Ollama API (Local)
        └──► n8n Instance (Opcional)
 ```
@@ -217,7 +220,127 @@ sk-proj-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 
 ---
 
-### 3.4 n8n API Key (OPCIONAL)
+### 3.4 Google Gemini API Key
+
+**Tiempo estimado:** 3 minutos
+
+**Pasos:**
+
+1. Ve a https://ai.google.dev/
+2. Regístrate o inicia sesión con tu cuenta de Google
+3. Haz clic en **"Get API Key"** o ve a **Credentials**
+4. Crea un nuevo proyecto o selecciona uno existente
+5. **Copia la API Key**
+
+**Ejemplo de API Key:**
+```
+AIzaSyxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+```
+
+**Modelos Disponibles:**
+
+| Modelo | Descripción | Uso Recomendado |
+|--------|-------------|-----------------|
+| gemini-2.0-flash-exp | Más reciente, muy rápido | Producción |
+| gemini-1.5-pro | Alta calidad, multimodal | Alternativa |
+| gemini-1.5-flash | Rápido, económico | Desarrollo |
+
+**Precios (aproximados):**
+- Gemini 2.0 Flash: Gratis hasta cierto límite, luego ~$0.075/1M tokens
+- Gemini 1.5 Pro: ~$3.50/1M tokens input, ~$10.50/1M tokens output
+
+---
+
+### 3.5 Alibaba Qwen API Key
+
+**Tiempo estimado:** 5 minutos
+
+**Pasos:**
+
+1. Ve a https://dashscope.aliyun.com/
+2. Regístrate o inicia sesión (requiere cuenta Alibaba)
+3. Navega a **API-KEY管理** (API Key Management)
+4. Haz clic en **"创建API-KEY"** (Create API Key)
+5. **Copia la API Key**
+
+**Ejemplo de API Key:**
+```
+sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+```
+
+**Modelos Disponibles:**
+
+| Modelo | Descripción | Uso Recomendado |
+|--------|-------------|-----------------|
+| qwen-plus | Alta calidad, bilingüe chino/inglés | Producción |
+| qwen-turbo | Rápido, económico | Alternativa |
+| qwen-max | Más potente | Tareas complejas |
+
+**Precios (aproximados):**
+- Qwen Plus: ~$0.50/1M tokens input, ~$2/1M tokens output
+- Qwen Turbo: ~$0.10/1M tokens input, ~$0.50/1M tokens output
+
+---
+
+### 3.6 DeepSeek API Key
+
+**Tiempo estimado:** 3 minutos
+
+**Pasos:**
+
+1. Ve a https://platform.deepseek.com/
+2. Regístrate o inicia sesión
+3. Navega a **API Keys**
+4. Haz clic en **"Create API Key"**
+5. **Copia la API Key**
+
+**Ejemplo de API Key:**
+```
+sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+```
+
+**Modelos Disponibles:**
+
+| Modelo | Descripción | Uso Recomendado |
+|--------|-------------|-----------------|
+| deepseek-chat | Excelente para chat general | Producción |
+| deepseek-coder | Especializado en código | Desarrollo |
+
+**Precios (aproximados):**
+- DeepSeek Chat: ~$0.14/1M tokens input, ~$0.28/1M tokens output
+- DeepSeek Coder: ~$0.14/1M tokens input, ~$0.28/1M tokens output
+
+> 💡 **NOTA:** DeepSeek es una de las opciones más económicas del mercado.
+
+---
+
+### 3.7 Ollama (OPCIONAL - Local y Gratuito)
+
+**Tiempo estimado:** 10 minutos
+
+**Pasos:**
+
+1. Ve a https://ollama.ai
+2. Descarga e instala Ollama para tu sistema operativo
+3. Abre una terminal y ejecuta: `ollama serve`
+4. En otra terminal, descarga un modelo: `ollama pull llama3`
+
+**Modelos Disponibles:**
+
+| Modelo | Descripción | RAM Requerida |
+|--------|-------------|---------------|
+| llama3 | Mejor calidad general | 8 GB |
+| llama3:70b | Muy potente | 40 GB |
+| mistral | Rápido y capaz | 8 GB |
+| codellama | Especializado en código | 8 GB |
+
+**Requisitos:**
+- Ollama debe estar ejecutándose cuando uses Claudio
+- Modelos más grandes requieren más RAM
+
+---
+
+### 3.8 n8n API Key (OPCIONAL)
 
 **Tiempo estimado:** 2 minutos
 
@@ -233,7 +356,7 @@ sk-proj-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 
 ---
 
-### 3.5 Tu Telegram User ID (OPCIONAL)
+### 3.10 Tu Telegram User ID (OPCIONAL)
 
 **Tiempo estimado:** 1 minuto
 
@@ -299,10 +422,13 @@ El instalador te hará las siguientes preguntas:
 
     [1] Anthropic (Claude) - Recomendado para n8n (default)
     [2] OpenAI (GPT-4/GPT-3.5) - Alternativa popular
-    [3] Ollama - Local y gratuito
-    [4] Multi-proveedor - Anthropic + OpenAI
+    [3] Google Gemini - Rápido y económico
+    [4] Alibaba Qwen - Alta calidad
+    [5] DeepSeek - Muy económico, excelente para código
+    [6] Ollama - Local y gratuito
+    [7] Multi-proveedor - Todos con fallback automático
 
-→ Selecciona una opción [1-4]:
+→ Selecciona una opción [1-7]:
 ```
 
 **Recomendación:** Anthropic (Claude) tiene mejor comprensión técnica para n8n.
@@ -514,6 +640,30 @@ ANTHROPIC_MODEL=claude-sonnet-4-20250514
 # AI_PROVIDER=openai
 # OPENAI_API_KEY=sk-proj-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 # OPENAI_MODEL=gpt-4o
+
+# O para Google Gemini
+# AI_PROVIDER=gemini
+# GEMINI_API_KEY=AIzaxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+# GEMINI_MODEL=gemini-2.0-flash-exp
+
+# O para Alibaba Qwen
+# AI_PROVIDER=qwen
+# QWEN_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+# QWEN_MODEL=qwen-plus
+
+# O para DeepSeek
+# AI_PROVIDER=deepseek
+# DEEPSEEK_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+# DEEPSEEK_MODEL=deepseek-chat
+
+# O para Ollama (Local)
+# AI_PROVIDER=ollama
+# OLLAMA_BASE_URL=http://localhost:11434
+# OLLAMA_MODEL=llama3
+
+# O multi-proveedor (fallback automático)
+# AI_PROVIDER=multi
+# (configura múltiples API keys arriba)
 
 # ============================================
 # N8N CONFIG (OPCIONAL)
@@ -882,13 +1032,16 @@ sudo -u claudio cat /opt/claudio-bot/.env
 
 ### P1: ¿Puedo usar múltiples proveedores de IA?
 
-**R:** Sí. Durante la instalación, selecciona "Multi-proveedor". Claudio usará Anthropic como primario y OpenAI como fallback si falla.
+**R:** Sí. Durante la instalación, selecciona "Multi-proveedor". Claudio usará los proveedores en orden: Anthropic → OpenAI → Gemini → Qwen → DeepSeek → Ollama, con fallback automático si alguno falla.
 
 ### P2: ¿Cuánto cuesta operar Claudio?
 
 **R:** Depende del proveedor:
 - **Anthropic Claude:** ~$0.50-5/mes para uso moderado
 - **OpenAI GPT-4:** ~$1-10/mes para uso moderado
+- **Google Gemini:** ~$0.10-2/mes (más económico)
+- **Alibaba Qwen:** ~$0.05-1/mes (muy económico)
+- **DeepSeek:** ~$0.02-0.50/mes (el más económico)
 - **Ollama:** Gratis (requiere VPS con más RAM)
 
 ### P3: ¿Puedo restringir el acceso a mi bot?

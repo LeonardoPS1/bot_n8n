@@ -12,8 +12,11 @@ python-telegram-bot==21.0
 # Anthropic (Claude) - Primary provider
 anthropic==0.40.0
 
-# OpenAI (optional, for multi-provider setup)
+# OpenAI (for OpenAI, Qwen, DeepSeek - all use OpenAI-compatible API)
 openai>=1.0.0
+
+# Google Gemini
+google-generativeai>=0.8.0
 
 # ============================================
 # Server & API

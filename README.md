@@ -4,13 +4,13 @@
 
 [![Python](https://img.shields.io/badge/Python-3.9+-blue.svg)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/Version-4.1-brightgreen.svg)](https://github.com/LeonardoPS1/bot_n8n)
+[![Version](https://img.shields.io/badge/Version-4.2-brightgreen.svg)](https://github.com/LeonardoPS1/bot_n8n)
 
 ---
 
 ## 🌟 Features
 
-- **🧠 AI-Powered**: Powered by Claude AI or GPT-4 with multi-provider support
+- **🧠 AI-Powered**: Powered by Claude, GPT-4, Gemini, Qwen, or DeepSeek with multi-provider support
 - **📊 n8n Integration**: Complete access to 1,396 n8n nodes and 2,709+ workflow templates
 - **🔧 Workflow Management**: Create, modify, and validate n8n workflows via chat
 - **🎯 Expression Validation**: Validate n8n expressions and fix common errors
@@ -68,6 +68,9 @@ This guide includes:
 | Telegram Bot Token | [@BotFather](https://t.me/BotFather) - `/newbot` |
 | Anthropic API Key | [console.anthropic.com](https://console.anthropic.com) - Settings → API Keys |
 | OpenAI API Key | [platform.openai.com](https://platform.openai.com) - API Keys |
+| Gemini API Key | [ai.google.dev](https://ai.google.dev/) - Create API Key |
+| Qwen API Key | [dashscope.aliyun.com](https://dashscope.aliyun.com/) - API Keys |
+| DeepSeek API Key | [platform.deepseek.com](https://platform.deepseek.com/) - API Keys |
 
 ### Environment Variables (.env)
 
@@ -84,6 +87,21 @@ ANTHROPIC_MODEL=claude-sonnet-4-20250514
 # AI_PROVIDER=openai
 # OPENAI_API_KEY=sk-your-key-here
 # OPENAI_MODEL=gpt-4o
+
+# Or Google Gemini
+# AI_PROVIDER=gemini
+# GEMINI_API_KEY=your_gemini_key_here
+# GEMINI_MODEL=gemini-2.0-flash-exp
+
+# Or Alibaba Qwen
+# AI_PROVIDER=qwen
+# QWEN_API_KEY=your_qwen_key_here
+# QWEN_MODEL=qwen-plus
+
+# Or DeepSeek
+# AI_PROVIDER=deepseek
+# DEEPSEEK_API_KEY=sk-your-deepseek-key-here
+# DEEPSEEK_MODEL=deepseek-chat
 
 # n8n (optional)
 N8N_API_KEY=your_n8n_api_key

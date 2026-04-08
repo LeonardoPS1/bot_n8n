@@ -108,6 +108,12 @@ def validate_api_key(key, provider):
         return key.startswith("sk-ant-")
     elif provider == "openai":
         return key.startswith("sk-")
+    elif provider == "gemini":
+        return len(key) > 30 and key.startswith("AIza")
+    elif provider == "qwen":
+        return len(key) > 30  # Qwen keys are longer
+    elif provider == "deepseek":
+        return key.startswith("sk-")
     elif provider == "n8n":
         return len(key) > 20
 
@@ -130,7 +136,7 @@ def print_installation_guide():
     print(f"{Colors.BOLD}📋 PASOS QUE VAMOS A REALIZAR:{Colors.END}\n")
 
     steps = [
-        ("PASO 1", "Configurar Proveedor de IA", "Seleccionarás Anthropic, OpenAI u Ollama"),
+        ("PASO 1", "Configurar Proveedor de IA", "Seleccionarás Anthropic, OpenAI, Gemini, Qwen, DeepSeek u Ollama"),
         ("PASO 2", "Configurar Telegram", "Conectarás tu bot de Telegram"),
         ("PASO 3", "Integración n8n (Opcional)", "Conectarás con tu instancia de n8n"),
         ("PASO 4", "Configurar Servidor", "Definirás puerto y opciones de red"),
@@ -154,9 +160,9 @@ def print_installation_guide():
 
     requirements = [
         ("Telegram Bot Token", "@BotFather en Telegram", "Obligatorio"),
-        ("API Key de IA", "Anthropic/OpenAI según tu elección", "Obligatorio"),
-        "(Opcional) n8n API Key", "Configuración de tu instancia n8n", "Opcional"),
-        "(Opcional) Tu Telegram User ID", "@userinfobot en Telegram", "Opcional")
+        ("API Key de IA", "Anthropic/OpenAI/Gemini/Qwen/DeepSeek según tu elección", "Obligatorio"),
+        ("(Opcional) n8n API Key", "Configuración de tu instancia n8n", "Opcional"),
+        ("(Opcional) Tu Telegram User ID", "@userinfobot en Telegram", "Opcional")
     ]
 
     for req, source, status in requirements:
@@ -200,6 +206,18 @@ AI_PROVIDER={config['ai_provider']}
         env_content += f"OPENAI_API_KEY={config['api_key']}\n"
         if config.get('openai_model'):
             env_content += f"OPENAI_MODEL={config['openai_model']}\n"
+    elif config['ai_provider'] == 'gemini':
+        env_content += f"GEMINI_API_KEY={config['api_key']}\n"
+        if config.get('gemini_model'):
+            env_content += f"GEMINI_MODEL={config['gemini_model']}\n"
+    elif config['ai_provider'] == 'qwen':
+        env_content += f"QWEN_API_KEY={config['api_key']}\n"
+        if config.get('qwen_model'):
+            env_content += f"QWEN_MODEL={config['qwen_model']}\n"
+    elif config['ai_provider'] == 'deepseek':
+        env_content += f"DEEPSEEK_API_KEY={config['api_key']}\n"
+        if config.get('deepseek_model'):
+            env_content += f"DEEPSEEK_MODEL={config['deepseek_model']}\n"
     elif config['ai_provider'] == 'ollama':
         env_content += f"OLLAMA_BASE_URL={config.get('ollama_url', 'http://localhost:11434')}\n"
         if config.get('ollama_model'):
@@ -639,14 +657,20 @@ def main():
     print_info("Claudio soporta múltiples proveedores de IA:")
     print("  • Anthropic (Claude) - Mejor comprensión técnica para n8n")
     print("  • OpenAI (GPT-4) - Alternativa popular y capaz")
+    print("  • Google Gemini - Rápido y económico")
+    print("  • Alibaba Qwen - Opción asiática de alta calidad")
+    print("  • DeepSeek - Especializado en código y muy económico")
     print("  • Ollama - Gratuito y local (requiere más recursos)")
     print()
 
     ai_providers = [
         "Anthropic (Claude) - Recomendado para n8n, mejor calidad técnica",
         "OpenAI (GPT-4/GPT-3.5) - Alternativa popular, buena calidad",
+        "Google Gemini - Rápido, económico y multimodal",
+        "Alibaba Qwen - Alta calidad, buena para chino/inglés",
+        "DeepSeek - Muy económico, excelente para código",
         "Ollama - Local y gratuito (requiere instalación y recursos)",
-        "Multi-proveedor - Anthropic + OpenAI (fallback automático)"
+        "Multi-proveedor - Todos los disponibles con fallback automático"
     ]
 
     ai_choice = ask_choice("¿Qué proveedor de IA deseas usar?", ai_providers, default=0)
@@ -692,6 +716,66 @@ def main():
         print_success(f"Modelo seleccionado: {models[model_choice]}")
 
     elif ai_choice == 2:
+        config['ai_provider'] = 'gemini'
+        print_info("Has seleccionado Google Gemini")
+        print()
+
+        while True:
+            api_key = ask_question("Ingresa tu API Key de Gemini (AIza...)", password=True)
+            if validate_api_key(api_key, 'gemini'):
+                config['api_key'] = api_key
+                print_success("API Key válida")
+                break
+            print_error("API Key inválida. Debe comenzar con 'AIza'")
+            print_info("Obtén tu API Key en: https://ai.google.dev/")
+
+        models = ["gemini-2.0-flash-exp", "gemini-1.5-pro", "gemini-1.5-flash"]
+        print()
+        model_choice = ask_choice("¿Qué modelo de Gemini deseas usar?", models, default=0)
+        config['gemini_model'] = models[model_choice]
+        print_success(f"Modelo seleccionado: {models[model_choice]}")
+
+    elif ai_choice == 3:
+        config['ai_provider'] = 'qwen'
+        print_info("Has seleccionado Alibaba Qwen")
+        print()
+
+        while True:
+            api_key = ask_question("Ingresa tu API Key de Qwen", password=True)
+            if validate_api_key(api_key, 'qwen'):
+                config['api_key'] = api_key
+                print_success("API Key válida")
+                break
+            print_error("API Key inválida")
+            print_info("Obtén tu API Key en: https://dashscope.aliyun.com/")
+
+        models = ["qwen-plus", "qwen-turbo", "qwen-max"]
+        print()
+        model_choice = ask_choice("¿Qué modelo de Qwen deseas usar?", models, default=0)
+        config['qwen_model'] = models[model_choice]
+        print_success(f"Modelo seleccionado: {models[model_choice]}")
+
+    elif ai_choice == 4:
+        config['ai_provider'] = 'deepseek'
+        print_info("Has seleccionado DeepSeek")
+        print()
+
+        while True:
+            api_key = ask_question("Ingresa tu API Key de DeepSeek (sk-...)", password=True)
+            if validate_api_key(api_key, 'deepseek'):
+                config['api_key'] = api_key
+                print_success("API Key válida")
+                break
+            print_error("API Key inválida. Debe comenzar con 'sk-'")
+            print_info("Obtén tu API Key en: https://platform.deepseek.com/")
+
+        models = ["deepseek-chat", "deepseek-coder"]
+        print()
+        model_choice = ask_choice("¿Qué modelo de DeepSeek deseas usar?", models, default=0)
+        config['deepseek_model'] = models[model_choice]
+        print_success(f"Modelo seleccionado: {models[model_choice]}")
+
+    elif ai_choice == 5:
         config['ai_provider'] = 'ollama'
         print_info("Has seleccionado Ollama (local)")
         print()
@@ -715,6 +799,9 @@ def main():
 
         anthropic_key = ""
         openai_key = ""
+        gemini_key = ""
+        qwen_key = ""
+        deepseek_key = ""
 
         if ask_yes_no("¿Tienes API Key de Anthropic?", default=True):
             while True:
@@ -730,12 +817,39 @@ def main():
                     break
                 print_error("API Key inválida")
 
+        if ask_yes_no("¿Tienes API Key de Gemini?", default=False):
+            while True:
+                gemini_key = ask_question("API Key de Gemini", password=True, required=False)
+                if not gemini_key or validate_api_key(gemini_key, 'gemini'):
+                    break
+                print_error("API Key inválida")
+
+        if ask_yes_no("¿Tienes API Key de Qwen?", default=False):
+            while True:
+                qwen_key = ask_question("API Key de Qwen", password=True, required=False)
+                if not qwen_key or validate_api_key(qwen_key, 'qwen'):
+                    break
+                print_error("API Key inválida")
+
+        if ask_yes_no("¿Tienes API Key de DeepSeek?", default=False):
+            while True:
+                deepseek_key = ask_question("API Key de DeepSeek", password=True, required=False)
+                if not deepseek_key or validate_api_key(deepseek_key, 'deepseek'):
+                    break
+                print_error("API Key inválida")
+
         if anthropic_key:
             config['anthropic_api_key'] = anthropic_key
         if openai_key:
             config['openai_api_key'] = openai_key
+        if gemini_key:
+            config['gemini_api_key'] = gemini_key
+        if qwen_key:
+            config['qwen_api_key'] = qwen_key
+        if deepseek_key:
+            config['deepseek_api_key'] = deepseek_key
 
-        if not anthropic_key and not openai_key:
+        if not anthropic_key and not openai_key and not gemini_key and not qwen_key and not deepseek_key:
             print_error("Debes configurar al menos un proveedor de IA")
             return
 
@@ -920,6 +1034,12 @@ def main():
         print(f"  Modelo IA:            {Colors.GREEN}{config.get('anthropic_model', 'N/A')}{Colors.END}")
     elif config['ai_provider'] == 'openai':
         print(f"  Modelo IA:            {Colors.GREEN}{config.get('openai_model', 'N/A')}{Colors.END}")
+    elif config['ai_provider'] == 'gemini':
+        print(f"  Modelo IA:            {Colors.GREEN}{config.get('gemini_model', 'N/A')}{Colors.END}")
+    elif config['ai_provider'] == 'qwen':
+        print(f"  Modelo IA:            {Colors.GREEN}{config.get('qwen_model', 'N/A')}{Colors.END}")
+    elif config['ai_provider'] == 'deepseek':
+        print(f"  Modelo IA:            {Colors.GREEN}{config.get('deepseek_model', 'N/A')}{Colors.END}")
     elif config['ai_provider'] == 'ollama':
         print(f"  Modelo IA:            {Colors.GREEN}{config.get('ollama_model', 'N/A')}{Colors.END}")
 
@@ -948,7 +1068,7 @@ def main():
 
     # Guardar config para uso futuro
     safe_config = config.copy()
-    for key in ['api_key', 'telegram_token', 'anthropic_api_key', 'openai_api_key']:
+    for key in ['api_key', 'telegram_token', 'anthropic_api_key', 'openai_api_key', 'gemini_api_key', 'qwen_api_key', 'deepseek_api_key']:
         if key in safe_config:
             safe_config[key] = '***HIDDEN***'
     with open('.claudio_config.json', 'w') as f:

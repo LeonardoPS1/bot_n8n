@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Claudio Server - Multi-AI Provider Support
-Supports Anthropic, OpenAI, Ollama, and multi-provider configurations
+Supports Anthropic, OpenAI, Gemini, Qwen, DeepSeek, Ollama, and multi-provider configurations
 """
 
 import os
@@ -32,6 +32,12 @@ try:
     OPENAI_AVAILABLE = True
 except ImportError:
     OPENAI_AVAILABLE = False
+
+try:
+    import google.generativeai as genai
+    GEMINI_AVAILABLE = True
+except ImportError:
+    GEMINI_AVAILABLE = False
 
 # Load environment variables
 load_dotenv()
@@ -68,6 +74,14 @@ ANTHROPIC_API_KEY = os.getenv('ANTHROPIC_API_KEY')
 ANTHROPIC_MODEL = os.getenv('ANTHROPIC_MODEL', 'claude-sonnet-4-20250514')
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
 OPENAI_MODEL = os.getenv('OPENAI_MODEL', 'gpt-4o')
+GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
+GEMINI_MODEL = os.getenv('GEMINI_MODEL', 'gemini-2.0-flash-exp')
+QWEN_API_KEY = os.getenv('QWEN_API_KEY')
+QWEN_BASE_URL = os.getenv('QWEN_BASE_URL', 'https://dashscope.aliyuncs.com/compatible-mode/v1')
+QWEN_MODEL = os.getenv('QWEN_MODEL', 'qwen-plus')
+DEEPSEEK_API_KEY = os.getenv('DEEPSEEK_API_KEY')
+DEEPSEEK_BASE_URL = os.getenv('DEEPSEEK_BASE_URL', 'https://api.deepseek.com')
+DEEPSEEK_MODEL = os.getenv('DEEPSEEK_MODEL', 'deepseek-chat')
 OLLAMA_BASE_URL = os.getenv('OLLAMA_BASE_URL', 'http://localhost:11434')
 OLLAMA_MODEL = os.getenv('OLLAMA_MODEL', 'llama3')
 
@@ -192,6 +206,116 @@ class OllamaProvider(AIProvider):
             return False
 
 
+class GeminiProvider(AIProvider):
+    """Google Gemini AI provider"""
+
+    def __init__(self, api_key: str, model: str = 'gemini-2.0-flash-exp'):
+        super().__init__(api_key, model)
+        if GEMINI_AVAILABLE and api_key:
+            genai.configure(api_key=api_key)
+            self.client = genai.GenerativeModel(model)
+
+    async def chat(self, messages: List[Dict[str, str]], system_prompt: str) -> str:
+        if not self.client:
+            raise ValueError("Gemini client not initialized")
+
+        # Build conversation with system prompt
+        conversation = self.client.start_chat(history=[])
+
+        # Add system prompt as first message
+        full_prompt = f"System: {system_prompt}\n\n"
+
+        # Add conversation history
+        for msg in messages:
+            role = msg['role']
+            content = msg['content']
+            if role == 'user':
+                full_prompt += f"User: {content}\n"
+            elif role == 'assistant':
+                full_prompt += f"Assistant: {content}\n"
+
+        full_prompt += "Assistant:"
+
+        try:
+            response = await asyncio.to_thread(
+                conversation.send_message,
+                full_prompt,
+                generation_config={"max_output_tokens": 4096}
+            )
+            return response.text
+        except Exception as e:
+            raise ValueError(f"Gemini API error: {e}")
+
+    def is_available(self) -> bool:
+        return GEMINI_AVAILABLE and bool(self.api_key)
+
+
+class QwenProvider(AIProvider):
+    """Alibaba Qwen AI provider (OpenAI-compatible)"""
+
+    def __init__(self, api_key: str, base_url: str = 'https://dashscope.aliyuncs.com/compatible-mode/v1', model: str = 'qwen-plus'):
+        super().__init__(api_key, model)
+        self.base_url = base_url
+        if OPENAI_AVAILABLE and api_key:
+            self.client = OpenAI(
+                api_key=api_key,
+                base_url=base_url
+            )
+
+    async def chat(self, messages: List[Dict[str, str]], system_prompt: str) -> str:
+        if not self.client:
+            raise ValueError("Qwen client not initialized")
+
+        # Add system prompt as first message
+        all_messages = [{"role": "system", "content": system_prompt}] + messages
+
+        try:
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=all_messages,
+                max_tokens=4096
+            )
+            return response.choices[0].message.content
+        except Exception as e:
+            raise ValueError(f"Qwen API error: {e}")
+
+    def is_available(self) -> bool:
+        return OPENAI_AVAILABLE and bool(self.api_key)
+
+
+class DeepSeekProvider(AIProvider):
+    """DeepSeek AI provider (OpenAI-compatible)"""
+
+    def __init__(self, api_key: str, base_url: str = 'https://api.deepseek.com', model: str = 'deepseek-chat'):
+        super().__init__(api_key, model)
+        self.base_url = base_url
+        if OPENAI_AVAILABLE and api_key:
+            self.client = OpenAI(
+                api_key=api_key,
+                base_url=base_url
+            )
+
+    async def chat(self, messages: List[Dict[str, str]], system_prompt: str) -> str:
+        if not self.client:
+            raise ValueError("DeepSeek client not initialized")
+
+        # Add system prompt as first message
+        all_messages = [{"role": "system", "content": system_prompt}] + messages
+
+        try:
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=all_messages,
+                max_tokens=4096
+            )
+            return response.choices[0].message.content
+        except Exception as e:
+            raise ValueError(f"DeepSeek API error: {e}")
+
+    def is_available(self) -> bool:
+        return OPENAI_AVAILABLE and bool(self.api_key)
+
+
 class MultiProvider(AIProvider):
     """Multi-provider fallback support"""
 
@@ -238,6 +362,26 @@ def get_ai_provider() -> AIProvider:
             model=OPENAI_MODEL
         )
 
+    elif AI_PROVIDER == 'gemini':
+        return GeminiProvider(
+            api_key=GEMINI_API_KEY or '',
+            model=GEMINI_MODEL
+        )
+
+    elif AI_PROVIDER == 'qwen':
+        return QwenProvider(
+            api_key=QWEN_API_KEY or '',
+            base_url=QWEN_BASE_URL,
+            model=QWEN_MODEL
+        )
+
+    elif AI_PROVIDER == 'deepseek':
+        return DeepSeekProvider(
+            api_key=DEEPSEEK_API_KEY or '',
+            base_url=DEEPSEEK_BASE_URL,
+            model=DEEPSEEK_MODEL
+        )
+
     elif AI_PROVIDER == 'ollama':
         return OllamaProvider(
             base_url=OLLAMA_BASE_URL,
@@ -252,6 +396,15 @@ def get_ai_provider() -> AIProvider:
 
         if OPENAI_AVAILABLE and OPENAI_API_KEY:
             providers.append(OpenAIProvider(OPENAI_API_KEY, OPENAI_MODEL))
+
+        if GEMINI_AVAILABLE and GEMINI_API_KEY:
+            providers.append(GeminiProvider(GEMINI_API_KEY, GEMINI_MODEL))
+
+        if QWEN_API_KEY:
+            providers.append(QwenProvider(QWEN_API_KEY, QWEN_BASE_URL, QWEN_MODEL))
+
+        if DEEPSEEK_API_KEY:
+            providers.append(DeepSeekProvider(DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL, DEEPSEEK_MODEL))
 
         if OllamaProvider(OLLAMA_BASE_URL, OLLAMA_MODEL).is_available():
             providers.append(OllamaProvider(OLLAMA_BASE_URL, OLLAMA_MODEL))
@@ -614,7 +767,7 @@ n8n_tools = N8NMCPTools()
 app = FastAPI(
     title="Claudio - Multi-AI n8n Assistant",
     description="Expert n8n workflow automation with multi-AI provider support",
-    version="4.0.0"
+    version="4.2.0"
 )
 
 app.add_middleware(
@@ -647,10 +800,10 @@ async def root():
     """Root endpoint"""
     return {
         "service": "Claudio",
-        "version": "4.0.0",
+        "version": "4.2.0",
         "ai_provider": AI_PROVIDER,
         "features": [
-            "Multi-AI provider support (Anthropic, OpenAI, Ollama)",
+            "Multi-AI provider support (Anthropic, OpenAI, Gemini, Qwen, DeepSeek, Ollama)",
             "Real n8n API access",
             "1396 n8n nodes database",
             "2709+ workflow templates",
