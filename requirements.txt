@@ -1,7 +1,8 @@
 # ============================================
-# Claudio Bot v4.6.1 - Python Dependencies
+# Claudio Bot v5.0 - Python Dependencies
 # ============================================
 # Instalación: pip install -r requirements.txt
+# Python: 3.10+
 # ============================================
 
 # Core Telegram Bot
