@@ -1378,29 +1378,26 @@ async def analyze_and_use_tools(message: str) -> Dict[str, Any]:
     if any(word in message_lower for word in ["eliminar", "borrar", "delete", "elimina", "borra"]):
         if any(word in message_lower for word in ["workflow", "workflows", "todo", "todos", "todos los", "all"]):
             workflows = await call_n8n_safe(n8n_tools.list_workflows(), timeout=5.0)
-                if isinstance(workflows, list) and len(workflows) > 0:
-                    deleted_count = 0
-                    results = []
-                    for wf in workflows:
-                        wf_id = wf.get("id")
-                        wf_name = wf.get("name", "Unknown")
-                        if wf_id:
-                            result = await n8n_tools.delete_workflow(wf_id)
-                            if "error" not in result:
-                                deleted_count += 1
-                                results.append(f"✓ Deleted: {wf_name}")
-                            else:
-                                results.append(f"✗ Failed: {wf_name} - {result.get('error', 'Unknown error')}")
+            if isinstance(workflows, list) and len(workflows) > 0:
+                deleted_count = 0
+                results = []
+                for wf in workflows:
+                    wf_id = wf.get("id")
+                    wf_name = wf.get("name", "Unknown")
+                    if wf_id:
+                        result = await n8n_tools.delete_workflow(wf_id)
+                        if "error" not in result:
+                            deleted_count += 1
+                            results.append(f"✓ Deleted: {wf_name}")
+                        else:
+                            results.append(f"✗ Failed: {wf_name} - {result.get('error', 'Unknown error')}")
 
-                    context["workflows_deleted"] = {
-                        "count": deleted_count,
-                        "results": results
-                    }
-                else:
-                    context["workflows_deleted"] = {"error": "No workflows found or couldn't list workflows"}
-            except Exception as e:
-                logger.warning(f"Failed to delete workflows: {e}")
-                context["workflows_deleted"] = {"error": str(e)}
+                context["workflows_deleted"] = {
+                    "count": deleted_count,
+                    "results": results
+                }
+            else:
+                context["workflows_deleted"] = {"error": "No workflows found or couldn't list workflows"}
 
     # Check workflows (list)
     if any(word in message_lower for word in ["workflow", "workflows", "mis workflows", "listar", "cuantos"]):
