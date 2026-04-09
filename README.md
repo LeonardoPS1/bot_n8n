@@ -1,88 +1,93 @@
-# 🤖 Claudio: The n8n AI Orchestrator
+# 🤖 Claudio: Tu Experto Orquestador de n8n
 
 <div align="center">
 
-**Unleash the power of n8n through Natural Language. Create, Manage, and Automate.**
+**Automatiza n8n a través de lenguaje natural. Crea, gestiona y escala tus flujos sin fricción.**
 
 [![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.100+-green.svg)](https://fastapi.tiangolo.com/)
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![AI Providers](https://img.shields.io/badge/AI-Claude%20%7C%20GPT%20%7C%20DeepSeek%20%7C%20GLM-orange.svg)](#)
+[![AI Providers](https://img.shields.io/badge/IA-Claude%20%7C%20GPT%20%7C%20DeepSeek%20%7C%20GLM-orange.svg)](#)
 
-[Deployment Guide](docs/INSTALLATION.md) • [Capabilities](docs/CAPABILITIES.md) • [API Info](#)
+[Guía de Instalación](docs/INSTALLATION.md) • [Capacidades Técnicas](docs/CAPABILITIES.md) • [Soporte](#)
 
 </div>
 
 ---
 
-## 📖 Overview
+## 📖 ¿Qué es Claudio?
 
-**Claudio** is a state-of-the-art AI assistant designed specifically for **n8n developers**. By bridging multiple top-tier AI models (Claude 3.5, GPT-4o, etc.) with a direct n8n-MCP (Model Context Protocol) integration, Claudio allows you to control your automation infrastructure using Telegram.
+**Claudio** es un asistente de IA de élite diseñado para desarrolladores y entusiastas de **n8n**. Al integrar los modelos de lenguaje más avanzados (Claude 3.5, GPT-4o, etc.) con el API de n8n mediante el protocolo MCP (Model Context Protocol), Claudio te permite controlar toda tu infraestructura de automatización desde la palma de tu mano a través de Telegram.
 
-Whether you need to create a complex Slack integration, activate a dormant workflow, or search through **8,000+ community templates**, Claudio handles the complexity for you.
-
-## ✨ Why Claudio?
-
-- **🧠 Multi-AI Resilience**: Automatic failover between providers (Anthropic, OpenAI, DeepSeek, etc.).
-- **🧩 10,800+ Templates**: Massive library of 2,700 core recipes and 8,100 community-indexed workflows.
-- **⚡ Proactive Logic**: Understands `$json.body`, connections, and complex expression syntax.
-- **📱 Native Telegram**: Manage your entire n8n instance from your chat app.
-- **🛠️ Fully Extensible**: Add your own specialized n8n skills and custom node databases.
+Desde diseñar integraciones complejas hasta buscar entre **más de 10,800 plantillas de la comunidad**, Claudio elimina la barrera técnica de la automatización.
 
 ---
 
-## 🚀 Quick Start
+## ✨ Características Destacadas
 
-### 1. Requirements
-Ensure you have **Python 3.10+** and an **n8n API Key**.
+*   **🧠 Inteligencia Multi-IA**: Sistema de redundancia automática que salta entre Anthropic, OpenAI y otros proveedores si uno falla.
+*   **🧩 Biblioteca Masiva**: Acceso instantáneo a 2,700 recetas oficiales y 8,100 flujos de la comunidad indexados localmente.
+*   **⚡ Lógica Auto-Correctiva**: Claudio entiende las sutiles sintaxis de n8n y te guía para evitar errores de conexión o expresión.
+*   **📱 Control Remoto Total**: Gestiona ciclos de vida de flujos (Listar, Activar, Editar, Borrar) directamente desde el chat.
+*   **🛠️ Arquitectura Profesional**: Optimizado para despliegue en VPS con servicios de sistema (`systemd`) o Docker.
 
-### 2. Setup
+---
+
+## 🚀 Inicio Rápido en 3 Pasos
+
+### 1. Requisitos
+Asegúrate de tener **Python 3.10+** y tu **API Key de n8n**.
+
+### 2. Instalación
 ```bash
-git clone https://github.com/leonardohh/telegram-claude-bot.git
-cd telegram-claude-bot
+git clone https://github.com/LeonardoPS1/bot_n8n.git
+cd bot_n8n
 python -m venv venv
-source venv/bin/activate  # venv\Scripts\activate on Windows
+source venv/bin/activate  # o venv\Scripts\activate en Windows
 pip install -r requirements.txt
 cp .env.example .env
 ```
 
-### 3. Run
+### 3. Configuración y Ejecución
+Edita el archivo `.env` con tus tokens y lanza los servicios:
 ```bash
-# Start the AI brain
+# Terminal 1: Servidor de IA
 python claudio_complete.py
 
-# Start the Telegram Interface (in a second terminal)
+# Terminal 2: Bot de Telegram
 python bot_v2.py
 ```
 
-*For a full production deployment on VPS, see our [Installation Guide](docs/INSTALLATION.md).*
+*Para un despliegue detallado en un servidor VPS, consulta la [Guía de Instalación](docs/INSTALLATION.md).*
 
 ---
 
-## 📁 Project Structure
+## 📁 Estructura del Proyecto
+
+El repositorio ha sido optimizado para ser limpio y escalable:
 
 ```text
 .
-├── claudio_complete.py      # Core AI Logic & MCP Server
-├── bot_v2.py                # Telegram Bot Client
-├── n8n_database.py          # n8n Node & Template Library
-├── n8n_mcp_tools.py         # Internal Tooling & API Proxy
-├── mcp_client.py            # Bridge to n8n-mcp npx
-├── docs/                    # Detailed Documentation
-├── tools/                   # Deployment & Maintenance Utilities
-└── skills/                  # Specialized AI Personality & Skills
+├── claudio_complete.py      # Núcleo de IA y Servidor MCP
+├── bot_v2.py                # Cliente de Bot de Telegram
+├── n8n_database.py          # Biblioteca de Nodos y Templates
+├── n8n_mcp_tools.py         # Proxy de Herramientas y API n8n
+├── docs/                    # Guías de Instalación y Capacidades
+├── tools/                   # Herramientas de Despliegue e Indexación
+├── utils/archive/           # Backups de scripts antiguos
+└── skills/                  # Personalidades y habilidades de IA
 ```
 
 ---
 
-## 🤝 Support & Community
+## 🤝 Soporte y Contribuciones
 
-- **Full Documentation**: Check the [docs/](docs/) folder for deep dives.
-- **Issues**: Report bugs or request features on [GitHub Issues](https://github.com/leonardohh/telegram-claude-bot/issues).
-- **Made with ❤️**: By automation enthusiasts, for automation enthusiasts.
+- **Documentación Completa**: Explora la carpeta `docs/` para guías profundas.
+- **Problemas**: Reporta errores o solicita funciones en [GitHub Issues](https://github.com/LeonardoPS1/bot_n8n/issues).
+- **Hecho con ❤️**: Por entusiastas de la automatización para el ecosistema n8n.
 
 ---
 
 <p align="center">
-  <i>"Automating the world, one message at a time."</i>
+  <i>"Automatizando el mundo, mensaje a mensaje."</i>
 </p>

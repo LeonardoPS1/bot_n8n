@@ -1,36 +1,54 @@
-# 🚀 Claudio Bot - Capabilities & Features
+# 🧠 Claudio Bot - Capacidades y Características
 
-Claudio is not just a bot; it's a complete **AI Orchestrator for n8n**. Below is a detailed list of what Claudio can do and the technology behind it.
+Claudio no es solo un bot de Telegram; es un **Orquestador de Automatización basado en IA** diseñado específicamente para maximizar tu productividad con **n8n**.
 
-## 🧠 Core Intelligence
-- **Multi-AI Provider Suite**: Native support for **Anthropic (Claude 3.5 Sonnet)**, **OpenAI (GPT-4o)**, **DeepSeek**, **GLM**, and **Ollama**.
-- **Dynamic Failover**: If the primary AI provider (e.g., Anthropic) hits a rate limit or goes down, Claudio automatically switches to the next available provider in your custom fallback list.
-- **n8n Expert Logic**: Claudio is trained on n8n best practices, common configuration errors, and complex expression syntax.
+---
 
-## 🛠️ n8n Operations
-- **Workflow Synthesis**: Create complex workflows from natural language. Claudio understands 1,300+ nodes and their specific parameters.
-- **Full Lifecycle Management**:
-    - `List`: View all workflows with their current status.
-    - `Get`: Retrieve JSON definitions or detailed summaries.
-    - `Update`: Modify existing workflows.
-    - `Activate/Deactivate`: Control production workflows from your phone.
-    - `Delete`: Clean up individual workflows or bulk-delete everything.
+## 🚀 Capacidades Principales
 
-## 📦 Extended Knowledge Base
-- **Core Nodes (810+)**: Full knowledge of all native n8n nodes.
-- **Community Nodes (580+)**: Deep understanding of popular community-contributed nodes.
-- **Workflow Templates (10,800+)**:
-    - **2,700+ Core Templates**: Official n8n recipes.
-    - **8,100+ Community Templates**: Real-world solutions indexed from the global n8n community.
-- **Search Engine**: Use the `get_community_workflow` tool to find proven solutions for any integration (e.g., "Find workflows for Binance and Google Sheets").
+### 1. Creación de Workflows mediante Lenguaje Natural
+Olvida arrastrar nodos manualmente para ideas simples. Solo dile a Claudio qué necesitas:
+*   *"Crea un flujo que reciba un Webhook, guarde los datos en Google Sheets y me envíe un mensaje a Telegram"*
+*   *"Haz un workflow para procesar correos de Gmail con OpenAI y guardarlos en Airtable"*
 
-## 🔒 Security & Deployment
-- **Granular Access Control**: Restrict usage to specific Telegram User IDs (`ALLOWED_USERS`).
-- **Admin Commands**: Sensitive operations (like managing models or deleting all workflows) are restricted to `ALLOWED_ADMIN_USERS`.
-- **VPS Ready**: Optimized scripts for deploying as a `systemd` service or via **Docker/Docker-Compose**.
-- **Environment Isolation**: Uses `.env` for all sensitive keys.
+### 2. Acceso a +10,800 Plantillas (Templates)
+Claudio tiene acceso a una biblioteca masiva para que no tengas que reinventar la rueda:
+*   **2,700+ Plantillas Oficiales**: El catálogo completo de la biblioteca de n8n.
+*   **8,100+ Plantillas de la Comunidad**: Flujos reales creados por expertos de todo el mundo, indexados localmente para búsquedas instantáneas.
 
-## 🎨 Interactive Experience
-- **Model Switching**: `/switch <provider>` to change the AI brain on the fly.
-- **Health Monitoring**: `/health` to check if the server and n8n API are responding.
-- **Context Awareness**: Remembers recent conversation steps to help you refine a workflow creation.
+### 3. Gestión Total de tu Instancia n8n
+Controla tu servidor n8n desde el móvil:
+*   **Listar**: Ver todos tus flujos y su estado actual (Activo/Inactivo).
+*   **Activar/Desactivar**: Controla tus automatizaciones en producción sobre la marcha.
+*   **Eliminar**: Limpia flujos individuales o toda tu instancia con comandos simples.
+*   **Detalle**: Obtén la definición JSON de cualquier flujo para inspeccionarlo.
+
+---
+
+## 🧠 Inteligencia y Modelos Soporte
+
+Claudio utiliza un sistema de **Proveedor Múltiple Dinámico** que garantiza que nunca te quedes sin servicio:
+
+*   **Modelos Soportados**:
+    *   **Anthropic**: Claude 3.5 Sonnet (Recomendado para lógica de nodos).
+    *   **OpenAI**: GPT-4o y GPT-4 Turbo.
+    *   **DeepSeek & GLM**: Alternativas de alta eficiencia y bajo costo.
+    *   **Ollama**: Soporte para modelos locales (Llama 3, Mistral) para máxima privacidad.
+*   **Auto-Fallback**: Si un proveedor (ej. Claude) falla o alcanza su límite de cuota, Claudio cambia automáticamente al siguiente (ej. GPT) sin interrumpir tu experiencia.
+
+---
+
+## 🛠️ Conocimiento Técnico Integrado
+
+Claudio es un experto en las "tripas" de n8n:
+*   **Sintaxis de Expresiones**: Conoce perfectamente cómo usar `{{ $json }}`, `{{ $node["Name"] }}`, `{{ $now }}` y funciones de JavaScript.
+*   **Mejores Prácticas**: Te advertirá sobre errores comunes (ej. el uso de `$json.body` en webhooks).
+*   **Base de Datos de Nodos**: Entiende los parámetros y operaciones de más de **1,300 nodos** únicos.
+
+---
+
+## 🔒 Seguridad de Nivel Producción
+
+*   **Control de Acceso**: Solo los usuarios cuyos IDs de Telegram estén en la lista blanca (`ALLOWED_USERS`) pueden interactuar con Claudio.
+*   **Comandos de Administrador**: Las funciones críticas de gestión de modelos y borrado masivo están restringidas a administradores.
+*   **Ejecución Segura**: Implementado localmente o en VPS mediante servicios dedicados o contenedores Docker.

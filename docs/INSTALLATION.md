@@ -1,89 +1,83 @@
-# 🛠️ Claudio Bot - Installation Guide
+# 🛠️ Claudio Bot - Guía Maestra de Instalación Paso a Paso
 
-This guide will walk you through the process of deploying Claudio Bot on a local machine or a Linux VPS.
-
-## 📋 Prerequisites
-- **Python**: 3.10 or higher.
-- **Git** installed.
-- **n8n Instance**: An active n8n instance with API access.
-- **Telegram Bot**: A bot token from [@BotFather](https://t.me/botfather).
-- **AI API Keys**: At least one key from Anthropic, OpenAI, DeepSeek, or GLM.
+Esta guía detallada te llevará desde cero hasta tener a Claudio operando al 100% en tu máquina local o en un servidor VPS.
 
 ---
 
-## 🚀 Standard Installation (Local/VPS)
+## 📋 Fase 1: Requisitos Previos
 
-### 1. Clone the Repository
+Antes de comenzar, asegúrate de tener lo siguiente:
+
+1.  **Python 3.10+**: El lenguaje base del proyecto.
+2.  **Tokens Esenciales**:
+    *   **Telegram Bot Token**: Obtenido a través de [@BotFather](https://t.me/botfather).
+    *   **n8n API Key**: Generada en `Settings > API` dentro de tu instancia de n8n.
+    *   **AI API Keys**: Al menos una de las siguientes: Anthropic (Claude), OpenAI (GPT), DeepSeek o GLM.
+
+---
+
+## 💻 Fase 2: Instalación Local (Windows/macOS/Linux)
+
+Ideal para pruebas de desarrollo o uso personal.
+
+### 1. Clonar el repositorio
 ```bash
-git clone https://github.com/leonardohh/telegram-claude-bot.git
-cd telegram-claude-bot
+git clone https://github.com/LeonardoPS1/bot_n8n.git
+cd bot_n8n
 ```
 
-### 2. Environment Setup
+### 2. Configurar el entorno virtual
 ```bash
 python -m venv venv
-# Windows:
+# Activar en Windows:
 venv\Scripts\activate
-# Linux/macOS:
+# Activar en Linux/macOS:
 source venv/bin/activate
+```
 
+### 3. Instalar dependencias
+```bash
 pip install -r requirements.txt
 ```
 
-### 3. Configuration
-Copy the example environment file and fill in your credentials:
+### 4. Configuración del entorno
+Copia el archivo de ejemplo y edítalo con tus credenciales:
 ```bash
 cp .env.example .env
-nano .env  # Or use your favorite editor
 ```
-
-**Required Variables**:
-- `TELEGRAM_TOKEN`: Your bot token.
-- `ALLOWED_USERS`: Your Telegram User ID (comma separated).
-- `N8N_API_KEY`: Found in n8n settings.
-- `N8N_INSTANCE_URL`: Your full n8n URL (e.g., `https://n8n.example.com`).
-- `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`.
-
-### 4. Community Workflow Indexing (Optional but Recommended)
-To enable Claudio to search over 8,000+ community templates:
-```bash
-# On Linux:
-bash tools/run_index.sh
-# Or manually:
-python tools/index_community_workflows.py
-```
-
-### 5. Start the Project
-You need to run TWO services: the AI Server and the Telegram Bot.
-```bash
-# Service 1: AI Server (Port 8001)
-python claudio_complete.py
-
-# Service 2: Telegram Bot (New terminal)
-python bot_v2.py
-```
+> [!IMPORTANT]
+> Edita el archivo `.env` y asegúrate de añadir tu **ID de usuario de Telegram** en `ALLOWED_USERS` para que Claudio te reconozca.
 
 ---
 
-## 🌐 Production VPS Deployment (Ubuntu/Debian)
+## 🌐 Fase 3: Despliegue Profesional en VPS (Ubuntu/Debian)
 
-For 24/7 operation, we recommend using `systemd`.
+Sigue estos pasos para una operación 24/7 estable.
 
-### 1. Automated Setup script
-We've included a robust update/install helper for Windows-to-VPS sync:
+### 1. Preparación del Sistema
+```bash
+sudo apt update && sudo apt upgrade -y
+sudo apt install python3-pip python3-venv git -y
+```
+
+### 2. Despliegue Automatizado
+Hemos optimizado el proceso para que puedas sincronizar desde tu PC local al VPS usando nuestra herramienta en PowerShell:
 ```powershell
+# Ejecuta esto en tu PC local (requiere acceso SSH configurado)
 ./tools/actualizar_vps.ps1
 ```
 
-### 2. Manual Systemd Configuration
-Create a service file for the server: `/etc/systemd/system/claudio-server.service`
+### 3. Configuración de Servicios (Systemd)
+Para que Claudio se inicie automáticamente y se reinicie en caso de error, configuramos dos servicios:
+
+**A. Claudio Server (El Cerebro):** `/etc/systemd/system/claudio-server.service`
 ```ini
 [Unit]
 Description=Claudio AI Server
 After=network.target
 
 [Service]
-User=your-user
+User=tu-usuario
 WorkingDirectory=/opt/claudio-bot
 ExecStart=/opt/claudio-bot/venv/bin/python claudio_complete.py
 Restart=always
@@ -92,9 +86,23 @@ Restart=always
 WantedBy=multi-user.target
 ```
 
-Repeat for the bot: `/etc/systemd/system/claudio-bot.service` using `bot_v2.py`.
+**B. Claudio Bot (La Interfaz):** `/etc/systemd/system/claudio-bot.service`
+```ini
+[Unit]
+Description=Claudio Telegram Bot
+After=claudio-server.service
 
-### 3. Management
+[Service]
+User=tu-usuario
+WorkingDirectory=/opt/claudio-bot
+ExecStart=/opt/claudio-bot/venv/bin/python bot_v2.py
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+```
+
+### 4. Activación
 ```bash
 sudo systemctl daemon-reload
 sudo systemctl enable claudio-server claudio-bot
@@ -103,8 +111,8 @@ sudo systemctl start claudio-server claudio-bot
 
 ---
 
-## 🐳 Docker Deployment
-```bash
-docker-compose up -d
-```
-*Note: Ensure your `.env` is configured before running docker-compose.*
+## 📚 Mantenimiento y Actualizaciones
+
+*   **Actualizar Código**: Usa `git pull` y reinicia los servicios con `sudo systemctl restart claudio-bot claudio-server`.
+*   **Ver Logs**: `sudo journalctl -u claudio-bot -f`
+*   **Herramientas**: Explora la carpeta `tools/` para scripts de indexación y diagnóstico.
