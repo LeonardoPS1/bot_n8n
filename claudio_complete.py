@@ -763,6 +763,13 @@ def create_ai_provider() -> AIProvider:
             model=DEEPSEEK_MODEL
         )
 
+    elif AI_PROVIDER == 'glm':
+        return GLMProvider(
+            api_key=GLM_API_KEY or '',
+            base_url=GLM_BASE_URL,
+            model=GLM_MODEL
+        )
+
     elif AI_PROVIDER == 'ollama':
         return OllamaProvider(
             base_url=OLLAMA_BASE_URL,
@@ -1173,7 +1180,7 @@ n8n_tools = N8NMCPTools()
 app = FastAPI(
     title="Claudio - Multi-AI n8n Assistant",
     description="Expert n8n workflow automation with multi-AI provider support",
-    version="4.6.0"
+    version="4.6.1"
 )
 
 app.add_middleware(
@@ -1209,7 +1216,7 @@ async def root():
 
     return {
         "service": "Claudio",
-        "version": "4.5.0",
+        "version": "4.6.1",
         "ai_provider": AI_PROVIDER,
         "current_provider": current_provider,
         "current_model": current_model,

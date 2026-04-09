@@ -560,7 +560,7 @@ async def models_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     try:
         async with httpx.AsyncClient(timeout=10) as client:
             response = await client.post(
-                f"{CLAUDIO_SERVER_URL}/api/admin/list-models",
+                f"{CLADIO_SERVER_URL}/api/admin/list-models",
                 json={"user_id": update.effective_user.id}
             )
             response.raise_for_status()
