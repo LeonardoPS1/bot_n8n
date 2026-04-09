@@ -1436,12 +1436,13 @@ async def analyze_and_use_tools(message: str) -> Dict[str, Any]:
         # Don't list if already deleted (avoid duplicate context)
         if "workflows_deleted" not in context:
             workflows = await call_n8n_safe(n8n_tools.list_workflows(), timeout=5.0)
-            if workflows and (not isinstance(workflows, dict) or "error" not in workflows):
+            # Make sure to handle empty list [] correctly (boolean evaluation of [] is False)
+            if workflows is not None and (not isinstance(workflows, dict) or "error" not in workflows):
                 context["workflows"] = {
                     "count": len(workflows) if isinstance(workflows, list) else "unknown",
                     "recent": workflows[:5] if isinstance(workflows, list) else list(workflows.values())[:5] if isinstance(workflows, dict) else []
                 }
-            elif workflows and isinstance(workflows, dict) and "error" in workflows:
+            elif isinstance(workflows, dict) and "error" in workflows:
                 context["workflows_error"] = f"n8n unavailable: {workflows['error']}"
 
     # Search nodes
