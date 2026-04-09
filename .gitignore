@@ -1,24 +1,26 @@
-# Environment variables
-.env
-
 # Python
 __pycache__/
 *.py[cod]
 *$py.class
-*.so
 venv/
+.venv/
 env/
-ENV/
+.env
 
 # Logs
 *.log
+debug_find.txt
+indexing*.log
+
+# Project specific
+external-templates/
+utils/archive/
+scratch/
 
 # IDE
 .vscode/
 .idea/
 *.swp
-*.swo
-
-# OS
-.DS_Store
-Thumbs.db
+*.bak
+*.temp
+*.backup*

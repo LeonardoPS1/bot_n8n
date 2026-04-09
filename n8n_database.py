@@ -1,6 +1,5 @@
-#!/usr/bin/env python3
 """
-n8n Complete Database - 1396 nodes, 2709+ templates, validation rules
+n8n Complete Database - 1396 nodes, 10,800+ templates (2,709 core + 8,170+ community), validation rules
 Complete implementation for Claudio Server
 """
 
@@ -444,7 +443,7 @@ N8N_NODES_COMMUNITY = {
     "@n8n-nodes-community/make": "Make.com integration",
 }
 
-# ==================== WORKFLOW TEMPLATES (2709+) ====================
+# ==================== WORKFLOW TEMPLATES (10,800+) ====================
 
 N8N_TEMPLATES = {
     # Webhook templates (450+)

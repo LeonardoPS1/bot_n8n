@@ -51,6 +51,10 @@ except ImportError:
 # Load environment variables
 load_dotenv()
 
+# MCP and Skills integration
+from mcp_client import get_mcp_client
+from skills_loader import get_enhanced_system_prompt
+
 # Add skills directory to path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -150,6 +154,11 @@ class AIProvider:
         """Send chat request and return response"""
         raise NotImplementedError
 
+    async def chat_with_tools(self, messages: List[Dict[str, str]], system_prompt: str, tools: List[Dict[str, Any]]) -> str:
+        """Send chat request with tool support and return final response"""
+        # Default behavior: if tools not supported by provider, just do normal chat
+        return await self.chat(messages, system_prompt)
+
     async def is_available(self) -> bool:
         """Check if provider is available"""
         return bool(self.api_key)
@@ -175,6 +184,78 @@ class AnthropicProvider(AIProvider):
         )
 
         return response.content[0].text
+
+    async def chat_with_tools(self, messages: List[Dict[str, str]], system_prompt: str, tools: List[Dict[str, Any]]) -> str:
+        if not self.client:
+            raise ValueError("Anthropic client not initialized")
+
+        # Format tools for Anthropic
+        anthropic_tools = [
+            {
+                "name": t["name"],
+                "description": t["description"],
+                "input_schema": t["inputSchema"]
+            }
+            for t in tools
+        ]
+
+        # Working copy of messages
+        local_messages = list(messages)
+        
+        # Max 10 tool call iterations
+        for _ in range(10):
+            response = self.client.messages.create(
+                model=self.model,
+                max_tokens=4096,
+                system=system_prompt,
+                messages=local_messages,
+                tools=anthropic_tools
+            )
+
+            # Add assistant message to history
+            local_messages.append({
+                "role": "assistant",
+                "content": response.content
+            })
+
+            if response.stop_reason == "tool_use":
+                # Handle tool calls
+                tool_results = []
+                mcp = await get_mcp_client()
+
+                for content in response.content:
+                    if content.type == "tool_use":
+                        tool_name = content.name
+                        tool_input = content.input
+                        tool_use_id = content.id
+
+                        # Execute tool
+                        result_content = await mcp.call_tool(tool_name, tool_input)
+                        
+                        # Format result
+                        text_result = ""
+                        for item in result_content:
+                            if item.type == "text":
+                                text_result += item.text
+
+                        tool_results.append({
+                            "type": "tool_result",
+                            "tool_use_id": tool_use_id,
+                            "content": text_result
+                        })
+
+                # Add tool results to history
+                local_messages.append({
+                    "role": "user",
+                    "content": tool_results
+                })
+                # Continue loop to let model reason on results
+                continue
+            else:
+                # Normal response (or error)
+                return response.content[0].text
+        
+        return "Error: Maximum tool call iterations reached."
 
     async def is_available(self) -> bool:
         return ANTHROPIC_AVAILABLE and bool(self.api_key)
@@ -206,11 +287,79 @@ class OpenAIProvider(AIProvider):
                 model=self.model,
                 messages=all_messages,
                 max_tokens=4096,
-                timeout=30.0  # 30 second timeout for OpenAI API
+                timeout=30.0
             )
         )
 
         return response.choices[0].message.content
+
+    async def chat_with_tools(self, messages: List[Dict[str, str]], system_prompt: str, tools: List[Dict[str, Any]]) -> str:
+        if not self.client:
+            raise ValueError("OpenAI client not initialized")
+
+        # Format tools for OpenAI
+        openai_tools = [
+            {
+                "type": "function",
+                "function": {
+                    "name": t["name"],
+                    "description": t["description"],
+                    "parameters": t["inputSchema"]
+                }
+            }
+            for t in tools
+        ]
+
+        # Working copy of messages
+        local_messages = [{"role": "system", "content": system_prompt}] + messages
+        import asyncio
+        loop = asyncio.get_event_loop()
+        mcp = await get_mcp_client()
+
+        # Max 10 tool call iterations
+        for _ in range(10):
+            response = await loop.run_in_executor(
+                None,
+                lambda: self.client.chat.completions.create(
+                    model=self.model,
+                    messages=local_messages,
+                    tools=openai_tools,
+                    max_tokens=4096,
+                    timeout=60.0
+                )
+            )
+
+            assistant_message = response.choices[0].message
+            local_messages.append(assistant_message)
+
+            if assistant_message.tool_calls:
+                for tool_call in assistant_message.tool_calls:
+                    tool_name = tool_call.function.name
+                    tool_args = json.loads(tool_call.function.arguments)
+                    
+                    # Execute tool
+                    result_content = await mcp.call_tool(tool_name, tool_args)
+                    
+                    # Format result
+                    text_result = ""
+                    for item in result_content:
+                        if item.type == "text":
+                            text_result += item.text
+                    
+                    # Add tool result to history
+                    local_messages.append({
+                        "role": "tool",
+                        "tool_call_id": tool_call.id,
+                        "name": tool_name,
+                        "content": text_result
+                    })
+                # Continue loop to let model reason on results
+                continue
+            else:
+                # Normal response
+                return assistant_message.content or ""
+        
+        return "Error: Maximum tool call iterations reached."
 
     async def is_available(self) -> bool:
         return OPENAI_AVAILABLE and bool(self.api_key)
@@ -537,6 +686,10 @@ class DynamicMultiProvider(AIProvider):
 
     async def chat(self, messages: List[Dict[str, str]], system_prompt: str) -> str:
         """Try current provider, fallback to others on failure"""
+        return await self.chat_with_tools(messages, system_prompt, [])
+
+    async def chat_with_tools(self, messages: List[Dict[str, str]], system_prompt: str, tools: List[Dict[str, Any]]) -> str:
+        """Try current provider, fallback to others on failure, with tool support"""
         last_error = None
 
         # Get ordered providers (respect failed ones)
@@ -564,7 +717,10 @@ class DynamicMultiProvider(AIProvider):
                     continue
 
                 # Try to get response
-                response = await provider.chat(messages, system_prompt)
+                if tools:
+                    response = await provider.chat_with_tools(messages, system_prompt, tools)
+                else:
+                    response = await provider.chat(messages, system_prompt)
 
                 # Success - update current if changed
                 if provider_name != self.current_provider:
@@ -813,7 +969,7 @@ The system automatically intercepts user requests, executes necessary n8n API re
 
 ### DATABASE KNOWLEDGE
 - **1396 n8n nodes** (812 core + 584 community)
-- **2709+ workflow templates**
+- **10,800+ workflow templates** (2,700 core + 8,170 community)
 - Complete node documentation
 - Parameter requirements and defaults
 - Common issues and solutions
@@ -884,6 +1040,13 @@ When the `[Acciones Ejecutadas]` section shows that the system has performed an 
 - Solución: [qué hacer]
 ```
 
+## COMMUNITY WORKFLOWS
+You have access to a massive library of 8,170+ community workflows (source: n8n-workflows mirror).
+- Use `search_templates` with a descriptive query to find these.
+- When you find an interesting community template (marked with source: community), USE `get_community_workflow` with its ID to see the full JSON.
+- You can recommend these templates to users or use them as a base for creating new workflows.
+- These templates are often more advanced and cover specific SAAS integrations that aren't in the core set.
+
 You communicate through Telegram. Be practical and precise. Focus on working solutions.
 """
 
@@ -907,6 +1070,17 @@ class N8NMCPTools:
         # Load complete node database
         self.nodes = {**N8N_NODES_CORE, **N8N_NODES_COMMUNITY}
         self.templates = N8N_TEMPLATES
+        
+        # Load community templates from index if available
+        self.community_templates = {}
+        try:
+            index_path = "/opt/claudio-bot/community_index.json"
+            if os.path.exists(index_path):
+                with open(index_path, "r", encoding="utf-8") as f:
+                    self.community_templates = json.load(f)
+                    # print(f"Loaded {len(self.community_templates)} community templates")
+        except Exception as e:
+            print(f"Error loading community index: {e}")
 
     async def search_nodes(
         self,
@@ -973,29 +1147,57 @@ class N8NMCPTools:
         category: str = "",
         complexity: str = ""
     ) -> List[Dict[str, Any]]:
-        """Search in workflow templates"""
+        """Search in workflow templates (core + community)"""
         results = []
         query_lower = query.lower()
 
+        # 1. Search in Core Templates
         for template_id, template_info in self.templates.items():
-            # Filter by category
             if category and template_info.get("category") != category:
                 continue
-
-            # Filter by complexity
             if complexity and template_info.get("complexity") != complexity:
                 continue
-
-            # Search query
             if query_lower:
                 if (query_lower in template_info["name"].lower() or
                     query_lower in template_info.get("description", "").lower() or
                     any(query_lower in tag.lower() for tag in template_info.get("tags", []))):
-                    results.append(template_info)
+                    results.append({"id": template_id, **template_info, "source": "core"})
             else:
-                results.append(template_info)
+                results.append({"id": template_id, **template_info, "source": "core"})
 
-        return results[:20]
+        # 2. Search in Community Templates
+        for template_id, template_info in self.community_templates.items():
+            if category and category != "community": # If specific core category, skip community
+                 if category.lower() not in [t.lower() for t in template_info.get("tags", [])]:
+                    continue
+            
+            if query_lower:
+                if (query_lower in template_info["name"].lower() or
+                    query_lower in template_info.get("description", "").lower() or
+                    any(query_lower in tag.lower() for tag in template_info.get("tags", [])) or
+                    any(query_lower in node.lower() for node in template_info.get("nodes", []))):
+                    results.append({"id": template_id, **template_info, "source": "community"})
+            else:
+                results.append({"id": template_id, **template_info, "source": "community"})
+
+        return results[:30]
+
+    async def get_community_workflow(self, template_id: str) -> Dict[str, Any]:
+        """Get the full JSON of a community workflow from the local repo copy"""
+        if template_id not in self.community_templates:
+            return {"error": f"Community template {template_id} not found"}
+        
+        info = self.community_templates[template_id]
+        repo_path = "/opt/claudio-bot/external-templates"
+        file_path = os.path.join(repo_path, info["path"], info["workflow_file"])
+        
+        try:
+            if os.path.exists(file_path):
+                with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+                    return json.load(f)
+            return {"error": f"Workflow file not found at {file_path}"}
+        except Exception as e:
+            return {"error": f"Failed to read community workflow: {e}"}
 
     async def validate_expression(
         self,
@@ -1272,7 +1474,7 @@ async def health_check():
 
 @app.post("/api/chat", response_model=ChatResponse)
 async def chat(request: ChatRequest):
-    """Process chat with full tool access"""
+    """Process chat with full Agentic MCP tool access"""
     user_id = request.user_id
     user_message = request.message.strip()
 
@@ -1288,80 +1490,41 @@ async def chat(request: ChatRequest):
         if user_id not in conversation_history:
             conversation_history[user_id] = []
 
-        # Add user message
+        # Add user message to history
         conversation_history[user_id].append({
             "role": "user",
             "content": user_message
         })
 
-        # Analyze and use tools
+        # --- MCP TOOL INTEGRATION ---
+        mcp = await get_mcp_client()
+        mcp_tools = await mcp.list_tools()
+        
+        # Priority Tools: We only want the AI to see the best tools
+        available_tools = mcp_tools
         tools_used = []
-        tool_context = await analyze_and_use_tools(user_message)
 
-        if tool_context:
-            tools_used = list(tool_context.keys())
-            enhanced_message = f"{user_message}\n\n[Tool Results]\n{json.dumps(tool_context, indent=2)}"
-        else:
-            enhanced_message = user_message
+        # --- AGENT_DIRECTIVE ---
+        AGENTIC_DIRECTIVE = """
+CRITICAL: YOU ARE AN AI AGENT, NOT A CHATBOT.
+1. ACTION OVER EXPLANATION: If a tool exists to perform a task (e.g., create_workflow, add_node), USE IT IMMEDIATELY.
+2. DO NOT explain how to use the n8n interface if you can do it via API.
+3. If the user asks for a workflow or nodes, your first message MUST be a tool call.
+4. If a tool fails, report the error and suggest a fix, do not just give up.
+5. Report success only AFTER the tool execution is confirmed.
+"""
+        # Combine base prompt, skills, and agentic directive
+        base_prompt = globals().get('CLAUDIO_COMPLETE_PROMPT', 'You are Claudio, an n8n expert.')
+        skills_dir = os.getenv('SKILLS_DIR', './n8n-skills/skills')
+        original_enhanced = get_enhanced_system_prompt(base_prompt, skills_dir)
+        final_system_prompt = f"{original_enhanced}\n\n{AGENTIC_DIRECTIVE}"
 
-        # Call AI provider
-        # Use globals() to access CLAUDIO_COMPLETE_PROMPT
-        PROMPT = globals().get('CLAUDIO_COMPLETE_PROMPT', 'You are Claudio, an n8n expert.')
-
-        # Add tool context to the user message so AI can use it
-        final_message = enhanced_message
-        if tool_context:
-            context_info = "\n\n[Acciones Ejecutadas]\n"
-
-            # Format deletion results clearly
-            if "workflows_deleted" in tool_context:
-                deleted = tool_context["workflows_deleted"]
-                if "error" in deleted:
-                    context_info += f"❌ ERROR ELIMINANDO WORKFLOWS: {deleted['error']}\n"
-                else:
-                    count = deleted.get('count', 0)
-                    results = deleted.get('results', [])
-                    context_info += f"✅ WORKFLOWS ELIMINADOS: {count} eliminados correctamente\n"
-                    if results:
-                        context_info += "Resultados:\n"
-                        for r in results[:10]:  # Max 10 results
-                            context_info += f"  {r}\n"
-
-            # Format workflow list
-            if "workflows" in tool_context and "workflows_deleted" not in tool_context:
-                wf = tool_context["workflows"]
-                count = wf.get('count', 0)
-                context_info += f"📋 WORKFLOWS ENCONTRADOS: {count} workflows\n"
-                recent = wf.get('recent', [])
-                if recent:
-                    context_info += "Workflows recientes:\n"
-                    for w in recent[:5]:
-                        context_info += f"  - {w.get('name', 'Unknown')} (ID: {w.get('id', 'N/A')})\n"
-
-            # Format node search
-            if "nodes" in tool_context:
-                nodes = tool_context["nodes"]
-                count = nodes.get('found', 0) if isinstance(nodes, dict) else len(nodes) if isinstance(nodes, list) else 0
-                context_info += f"🔍 NODOS ENCONTRADOS: {count} nodos\n"
-
-            # Format template search
-            if "templates" in tool_context:
-                templates = tool_context["templates"]
-                count = len(templates) if isinstance(templates, list) else 0
-                context_info += f"📄 TEMPLATES ENCONTRADOS: {count} templates\n"
-
-            # Add any errors
-            if "workflows_error" in tool_context:
-                context_info += f"⚠️ ERROR: {tool_context['workflows_error']}\n"
-
-            final_message = enhanced_message + context_info
-
-        # Update the last message with tool context
-        conversation_history[user_id][-1]["content"] = final_message
-
-        response_text = await ai_provider.chat(
+        # --- AGENTIC EXECUTION ---
+        # Call AI provider with tool support (Agent Loop)
+        response_text = await ai_provider.chat_with_tools(
             messages=conversation_history[user_id],
-            system_prompt=PROMPT
+            system_prompt=final_system_prompt,
+            tools=available_tools
         )
 
         # Add to history
@@ -1382,143 +1545,23 @@ async def chat(request: ChatRequest):
             timestamp=datetime.now().isoformat(),
             model=current_model,
             provider=current_provider,
-            tools_used=tools_used,
-            context=tool_context
+            tools_used=[], # Updated by providers if we implement tracking, for now empty
+            context={}
         )
 
     except Exception as e:
-        logger.error(f"Error: {e}")
+        logger.error(f"Error in chat endpoint: {e}")
+        import traceback
+        logger.debug(traceback.format_exc())
         raise HTTPException(status_code=500, detail=str(e))
 
 
 async def analyze_and_use_tools(message: str) -> Dict[str, Any]:
-    """Analyze message and use appropriate tools - n8n errors are non-fatal"""
-    import asyncio
-
-    context = {}
-    message_lower = message.lower()
-
-    # Helper function to call n8n with timeout
-    async def call_n8n_safe(coro, timeout=5.0, default=None):
-        """Call n8n function with timeout, return default on failure"""
-        try:
-            result = await asyncio.wait_for(coro, timeout=timeout)
-            return result
-        except asyncio.TimeoutError:
-            logger.warning(f"n8n call timeout after {timeout}s")
-            return default or {"error": "timeout"}
-        except Exception as e:
-            logger.warning(f"n8n call failed: {e}")
-            return default or {"error": str(e)}
-
-    # DELETE WORKFLOWS - Detect delete/eliminate commands
-    if any(word in message_lower for word in ["eliminar", "borrar", "delete", "elimina", "borra"]):
-        if any(word in message_lower for word in ["workflow", "workflows", "todo", "todos", "todos los", "all"]):
-            workflows = await call_n8n_safe(n8n_tools.list_workflows(), timeout=5.0)
-            if isinstance(workflows, list) and len(workflows) > 0:
-                deleted_count = 0
-                results = []
-                for wf in workflows:
-                    wf_id = wf.get("id")
-                    wf_name = wf.get("name", "Unknown")
-                    if wf_id:
-                        result = await n8n_tools.delete_workflow(wf_id)
-                        if "error" not in result:
-                            deleted_count += 1
-                            results.append(f"✓ Deleted: {wf_name}")
-                        else:
-                            results.append(f"✗ Failed: {wf_name} - {result.get('error', 'Unknown error')}")
-
-                context["workflows_deleted"] = {
-                    "count": deleted_count,
-                    "results": results
-                }
-            else:
-                context["workflows_deleted"] = {"error": "No workflows found or couldn't list workflows"}
-
-    # Check workflows (list)
-    if any(word in message_lower for word in ["workflow", "workflows", "mis workflows", "listar", "cuantos"]):
-        # Don't list if already deleted (avoid duplicate context)
-        if "workflows_deleted" not in context:
-            workflows = await call_n8n_safe(n8n_tools.list_workflows(), timeout=5.0)
-            # Make sure to handle empty list [] correctly (boolean evaluation of [] is False)
-            if workflows is not None and (not isinstance(workflows, dict) or "error" not in workflows):
-                context["workflows"] = {
-                    "count": len(workflows) if isinstance(workflows, list) else "unknown",
-                    "recent": workflows[:5] if isinstance(workflows, list) else list(workflows.values())[:5] if isinstance(workflows, dict) else []
-                }
-            elif isinstance(workflows, dict) and "error" in workflows:
-                context["workflows_error"] = f"n8n unavailable: {workflows['error']}"
-
-    # Search nodes
-    if any(word in message_lower for word in ["nodo", "node", "buscar", "search"]):
-        query = message
-        for skip in ["nodo", "node", "buscar", "search", "find"]:
-            query = query.replace(skip, "").strip()
-
-        # Try n8n search first with timeout, fallback to offline
-        nodes = await call_n8n_safe(n8n_tools.search_nodes(query=query), timeout=3.0, default=None)
-        if nodes:
-            context["nodes"] = {
-                "query": query,
-                "found": len(nodes),
-                "results": nodes[:10]
-            }
-        else:
-            # Use offline database as fallback
-            try:
-                nodes_offline = []
-                query_lower = query.lower()
-                for node_id, node_info in {**N8N_NODES_CORE, **N8N_NODES_COMMUNITY}.items():
-                    searchable = f"{node_id} {str(node_info)}".lower()
-                    if query_lower in searchable:
-                        nodes_offline.append({"id": node_id, "info": node_info})
-                if nodes_offline:
-                    context["nodes"] = {
-                        "query": query,
-                        "found": len(nodes_offline),
-                        "results": nodes_offline[:10],
-                        "note": "Using offline database"
-                    }
-            except Exception as e2:
-                logger.error(f"Offline search also failed: {e2}")
-
-    # Search templates
-    if any(word in message_lower for word in ["template", "ejemplo", "example", "crear"]):
-        templates = await call_n8n_safe(n8n_tools.search_templates(query=message), timeout=3.0, default=None)
-        if templates:
-            context["templates"] = templates[:8]
-        else:
-            # Use offline database as fallback
-            try:
-                templates_offline = []
-                query_lower = message.lower()
-                for template_id, template_info in N8N_TEMPLATES.items():
-                    searchable = f"{template_id} {str(template_info)}".lower()
-                    if query_lower in searchable:
-                        templates_offline.append(template_info)
-                if templates_offline:
-                    context["templates"] = templates_offline[:8]
-                    context["templates_note"] = "Using offline database"
-            except Exception as e2:
-                logger.error(f"Offline template search failed: {e2}")
-
-    # Expression validation
-    if any(word in message_lower for word in ["expresión", "expression", "$json", "$node", "validar"]):
-        try:
-            # Extract potential expression
-            expr_match = re.search(r'[\$][\w\[\."\{\} ]+', message)
-            if expr_match:
-                expr = expr_match.group()
-                validation = await n8n_tools.validate_expression(expr, context=message)
-                context["expression_validation"] = {
-                    "expression": expr,
-                    "validation": validation
-                }
-        except Exception as e:
-            logger.warning(f"Failed to validate expression: {e}")
-
-    return context
+    """
+    [DEPRECATED] This logic is now handled by the LLM itself via Agentic MCP Loop.
+    Maintaining skeleton for backward compatibility if any other endpoint uses it.
+    """
+    return {}
 
 
 @app.get("/api/tools")
@@ -1953,6 +1996,39 @@ async def notify_bot(notification: Dict[str, str]):
         "type": notification_type
     }
 
+# ============================================
+# TOOL REGISTRATION
+# ============================================
+
+async def register_extra_tools():
+    """Register virtual tools in the MCP client"""
+    try:
+        mcp = await get_mcp_client()
+        
+        # 1. Community Workflow Retrieval
+        mcp.register_local_tool(
+            name="get_community_workflow",
+            description="Get the full JSON definition of a community workflow template by its ID",
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "template_id": {
+                        "type": "string",
+                        "description": "The ID of the community template (from search_templates)"
+                    }
+                },
+                "required": ["template_id"]
+            },
+            handler=lambda args: n8n_tools.get_community_workflow(args.get("template_id"))
+        )
+        logger.info("Registered local tool: get_community_workflow")
+    except Exception as e:
+        logger.error(f"Failed to register extra tools: {e}")
+
+
+@app.on_event("startup")
+async def startup_event():
+    asyncio.create_task(register_extra_tools())
 
 def main():
     """Start server"""
@@ -1975,7 +2051,6 @@ def main():
     if not ai_provider.api_key or ai_provider.api_key == "dynamic":
         logger.info("🔧 Using dynamic multi-provider mode")
 
-    # Increase timeout for long operations (e.g., deleting multiple workflows)
     uvicorn.run(
         app,
         host="0.0.0.0",

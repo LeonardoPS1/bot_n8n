@@ -30,11 +30,14 @@ uvicorn[standard]>=0.32.0
 pydantic>=2.9.0
 
 # ============================================
-# Cliente HTTP
+# Cliente HTTP / MCP Protocol
 # ============================================
 
 # httpx para llamadas async (requerido por google-genai >=0.28.1)
 httpx>=0.28.1
+
+# mcp protocol SDK para soporte de n8n-mcp
+mcp>=1.3.0
 
 # requests para llamadas sync
 requests>=2.31.0
