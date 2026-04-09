@@ -110,6 +110,7 @@ def step_ai_provider():
         "Google Gemini (gemini-2.5-pro)",
         "Alibaba Qwen (qwen-plus)",
         "DeepSeek (deepseek-chat)",
+        "GLM (z.ai GLM 5.1 - Costo eficiente)",
         "Ollama (Local y GRATIS) - phi3:mini",
         "Modelo Personalizado"
     ]
@@ -154,7 +155,7 @@ def step_ai_provider():
             config['ANTHROPIC_API_KEY'] = get_input("  API Key de Anthropic")
             config['ANTHROPIC_MODEL'] = get_input("  Modelo (default: claude-sonnet-4-20250514)", "claude-sonnet-4-20250514")
 
-    elif choice == 6:  # Ollama
+    elif choice == 7:  # Ollama
         config['AI_PROVIDER'] = 'ollama'
         config['OLLAMA_BASE_URL'] = 'http://localhost:11434'
         config['OLLAMA_MODEL'] = get_input("Modelo (default: phi3:mini)", "phi3:mini")
@@ -162,7 +163,7 @@ def step_ai_provider():
         if yes_no("¿Quieres instalar Ollama ahora?", True):
             install_ollama()
 
-    elif choice == 7:  # Custom
+    elif choice == 8:  # Custom
         print_info("\nPara modelo personalizado, necesitas:")
         print("  - URL base de la API (ej: https://api.example.com/v1)")
         print("  - API Key")
@@ -176,7 +177,7 @@ def step_ai_provider():
 
     else:
         # Single providers
-        provider_names = ['anthropic', 'openai', 'gemini', 'qwen', 'deepseek']
+        provider_names = ['anthropic', 'openai', 'gemini', 'qwen', 'deepseek', 'glm']
         provider = provider_names[choice]
         config['AI_PROVIDER'] = provider
 
@@ -201,6 +202,11 @@ def step_ai_provider():
             config['DEEPSEEK_API_KEY'] = get_input("API Key de DeepSeek")
             config['DEEPSEEK_MODEL'] = 'deepseek-chat'
             config['DEEPSEEK_BASE_URL'] = 'https://api.deepseek.com'
+
+        elif provider == 'glm':
+            config['GLM_API_KEY'] = get_input("API Key de GLM (z.ai / BigModel)")
+            config['GLM_MODEL'] = get_input("Modelo (default: glm-4-flash)", "glm-4-flash")
+            config['GLM_BASE_URL'] = 'https://open.bigmodel.cn/api/paas/v4'
 
     return config
 

@@ -104,6 +104,9 @@ QWEN_MODEL = os.getenv('QWEN_MODEL', 'qwen-plus')
 DEEPSEEK_API_KEY = os.getenv('DEEPSEEK_API_KEY')
 DEEPSEEK_BASE_URL = os.getenv('DEEPSEEK_BASE_URL', 'https://api.deepseek.com')
 DEEPSEEK_MODEL = os.getenv('DEEPSEEK_MODEL', 'deepseek-chat')
+GLM_API_KEY = os.getenv('GLM_API_KEY')
+GLM_BASE_URL = os.getenv('GLM_BASE_URL', 'https://open.bigmodel.cn/api/paas/v4')
+GLM_MODEL = os.getenv('GLM_MODEL', 'glm-4-flash')
 OLLAMA_BASE_URL = os.getenv('OLLAMA_BASE_URL', 'http://localhost:11434')
 OLLAMA_MODEL = os.getenv('OLLAMA_MODEL', 'llama3')
 
@@ -369,6 +372,39 @@ class DeepSeekProvider(AIProvider):
         return OPENAI_AVAILABLE and bool(self.api_key)
 
 
+class GLMProvider(AIProvider):
+    """GLM (z.ai / BigModel) AI provider (OpenAI-compatible)"""
+
+    def __init__(self, api_key: str, base_url: str = 'https://open.bigmodel.cn/api/paas/v4', model: str = 'glm-4-flash'):
+        super().__init__(api_key, model)
+        self.base_url = base_url
+        if OPENAI_AVAILABLE and api_key:
+            self.client = OpenAI(
+                api_key=api_key,
+                base_url=base_url
+            )
+
+    async def chat(self, messages: List[Dict[str, str]], system_prompt: str) -> str:
+        if not self.client:
+            raise ValueError("GLM client not initialized")
+
+        # Add system prompt as first message
+        all_messages = [{"role": "system", "content": system_prompt}] + messages
+
+        try:
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=all_messages,
+                max_tokens=4096
+            )
+            return response.choices[0].message.content
+        except Exception as e:
+            raise ValueError(f"GLM API error: {e}")
+
+    async def is_available(self) -> bool:
+        return OPENAI_AVAILABLE and bool(self.api_key)
+
+
 class CustomProvider(AIProvider):
     """Custom AI provider for user-defined models (OpenAI or Anthropic compatible)"""
 
@@ -461,6 +497,11 @@ class DynamicMultiProvider(AIProvider):
             self.providers['deepseek'] = DeepSeekProvider(DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL, DEEPSEEK_MODEL)
             if 'deepseek' not in self.provider_order:
                 self.provider_order.append('deepseek')
+
+        if GLM_API_KEY:
+            self.providers['glm'] = GLMProvider(GLM_API_KEY, GLM_BASE_URL, GLM_MODEL)
+            if 'glm' not in self.provider_order:
+                self.provider_order.append('glm')
 
         # Always add Ollama (will check availability dynamically)
         self.providers['ollama'] = OllamaProvider(OLLAMA_BASE_URL, OLLAMA_MODEL)

@@ -105,6 +105,10 @@ def validate_api_key_format(provider: str, api_key: str) -> bool:
     elif provider == 'deepseek':
         return api_key.startswith('sk-')
 
+    # GLM keys contain dots and are longer
+    elif provider == 'glm':
+        return len(api_key) >= 20 and '.' in api_key
+
     # Custom providers - minimal validation
     else:
         return len(api_key) >= 10
@@ -144,6 +148,7 @@ async def update_env_file(provider: str, api_key: str) -> bool:
             'gemini': 'GEMINI_API_KEY',
             'qwen': 'QWEN_API_KEY',
             'deepseek': 'DEEPSEEK_API_KEY',
+            'glm': 'GLM_API_KEY',
             'ollama': 'OLLAMA_BASE_URL',
         }
 
@@ -308,7 +313,8 @@ async def addkey_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             "• openai\n"
             "• gemini\n"
             "• qwen\n"
-            "• deepseek\n\n"
+            "• deepseek\n"
+            "• glm\n\n"
             "Example: /addkey gemini\n\n"
             "After this command, send me your API key in a separate message. "
             "The key will be hidden and stored securely.",
@@ -319,7 +325,7 @@ async def addkey_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     provider = args[0].lower()
 
     # Validate provider
-    valid_providers = ['anthropic', 'openai', 'gemini', 'qwen', 'deepseek', 'ollama']
+    valid_providers = ['anthropic', 'openai', 'gemini', 'qwen', 'deepseek', 'glm', 'ollama']
     if provider not in valid_providers:
         await update.message.reply_text(
             f"❌ Invalid provider '{provider}'\n\n"
@@ -476,6 +482,10 @@ async def listkeys_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         'DeepSeek': {
             'key': os.getenv('DEEPSEEK_API_KEY', ''),
             'env': 'DEEPSEEK_API_KEY'
+        },
+        'GLM': {
+            'key': os.getenv('GLM_API_KEY', ''),
+            'env': 'GLM_API_KEY'
         }
     }
 
@@ -607,6 +617,7 @@ async def switch_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             "• gemini\n"
             "• qwen\n"
             "• deepseek\n"
+            "• glm\n"
             "• ollama\n\n"
             "Example: /switch openai\n\n"
             "💡 In dynamic mode, this switches instantly without restart!",
