@@ -770,12 +770,20 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         # Send response (handle Telegram message length limit)
         max_length = 4096
         if len(response_text) <= max_length:
-            await update.message.reply_text(response_text, parse_mode='Markdown')
+            try:
+                await update.message.reply_text(response_text, parse_mode='Markdown')
+            except Exception as e:
+                logger.warning(f"Markdown parsing failed, falling back to pure text: {e}")
+                await update.message.reply_text(response_text)
         else:
             # Split long messages
             chunks = [response_text[i:i+max_length] for i in range(0, len(response_text), max_length)]
             for chunk in chunks:
-                await update.message.reply_text(chunk, parse_mode='Markdown')
+                try:
+                    await update.message.reply_text(chunk, parse_mode='Markdown')
+                except Exception as e:
+                    logger.warning(f"Markdown parsing failed for chunk, falling back to pure text: {e}")
+                    await update.message.reply_text(chunk)
 
         logger.info(f"Claudio response to {user_id}: {response_text[:100]}...")
 
