@@ -1195,8 +1195,23 @@ async def root():
 
 @app.get("/health")
 async def health_check():
-    """Health check"""
-    n8n_health = await n8n_tools.list_workflows()
+    """Health check - n8n failures are non-fatal"""
+    import asyncio
+
+    # Try to check n8n with short timeout (3 seconds max)
+    n8n_health = {"error": "timeout"}
+    n8n_connected = False
+
+    try:
+        n8n_health = await asyncio.wait_for(n8n_tools.list_workflows(), timeout=3.0)
+        n8n_connected = not isinstance(n8n_health, dict) or "error" not in n8n_health
+    except asyncio.TimeoutError:
+        n8n_health = {"error": "timeout"}
+        n8n_connected = False
+    except Exception as e:
+        n8n_health = {"error": str(e)}
+        n8n_connected = False
+
     ai_available = await ai_provider.is_available()
 
     current_provider = ai_provider.get_current_provider() if isinstance(ai_provider, DynamicMultiProvider) else AI_PROVIDER
@@ -1210,9 +1225,10 @@ async def health_check():
         "current_model": current_model,
         "ai_available": ai_available,
         "n8n": {
-            "connected": not isinstance(n8n_health, dict) or "error" not in n8n_health,
+            "connected": n8n_connected,
             "instance": N8N_INSTANCE_URL,
-            "has_api_key": bool(N8N_API_KEY)
+            "has_api_key": bool(N8N_API_KEY),
+            "error": n8n_health.get("error") if isinstance(n8n_health, dict) and "error" in n8n_health else None
         }
     }
 
@@ -1340,14 +1356,28 @@ async def chat(request: ChatRequest):
 
 async def analyze_and_use_tools(message: str) -> Dict[str, Any]:
     """Analyze message and use appropriate tools - n8n errors are non-fatal"""
+    import asyncio
+
     context = {}
     message_lower = message.lower()
+
+    # Helper function to call n8n with timeout
+    async def call_n8n_safe(coro, timeout=5.0, default=None):
+        """Call n8n function with timeout, return default on failure"""
+        try:
+            result = await asyncio.wait_for(coro, timeout=timeout)
+            return result
+        except asyncio.TimeoutError:
+            logger.warning(f"n8n call timeout after {timeout}s")
+            return default or {"error": "timeout"}
+        except Exception as e:
+            logger.warning(f"n8n call failed: {e}")
+            return default or {"error": str(e)}
 
     # DELETE WORKFLOWS - Detect delete/eliminate commands
     if any(word in message_lower for word in ["eliminar", "borrar", "delete", "elimina", "borra"]):
         if any(word in message_lower for word in ["workflow", "workflows", "todo", "todos", "todos los", "all"]):
-            try:
-                workflows = await n8n_tools.list_workflows()
+            workflows = await call_n8n_safe(n8n_tools.list_workflows(), timeout=5.0)
                 if isinstance(workflows, list) and len(workflows) > 0:
                     deleted_count = 0
                     results = []
@@ -1376,49 +1406,43 @@ async def analyze_and_use_tools(message: str) -> Dict[str, Any]:
     if any(word in message_lower for word in ["workflow", "workflows", "mis workflows", "listar", "cuantos"]):
         # Don't list if already deleted (avoid duplicate context)
         if "workflows_deleted" not in context:
-            try:
-                workflows = await n8n_tools.list_workflows()
-                if not isinstance(workflows, dict) or "error" not in workflows:
-                    context["workflows"] = {
-                        "count": len(workflows) if isinstance(workflows, list) else "unknown",
-                        "recent": workflows[:5] if isinstance(workflows, list) else list(workflows.values())[:5] if isinstance(workflows, dict) else []
-                    }
-            except Exception as e:
-                logger.warning(f"Failed to fetch workflows: {e}")
-                context["workflows_error"] = "n8n service unavailable - workflows cannot be listed"
+            workflows = await call_n8n_safe(n8n_tools.list_workflows(), timeout=5.0)
+            if workflows and (not isinstance(workflows, dict) or "error" not in workflows):
+                context["workflows"] = {
+                    "count": len(workflows) if isinstance(workflows, list) else "unknown",
+                    "recent": workflows[:5] if isinstance(workflows, list) else list(workflows.values())[:5] if isinstance(workflows, dict) else []
+                }
+            elif workflows and isinstance(workflows, dict) and "error" in workflows:
+                context["workflows_error"] = f"n8n unavailable: {workflows['error']}"
 
     # Search nodes
     if any(word in message_lower for word in ["nodo", "node", "buscar", "search"]):
-        try:
-            query = message
-            for skip in ["nodo", "node", "buscar", "search", "find"]:
-                query = query.replace(skip, "").strip()
-            nodes = await n8n_tools.search_nodes(query=query)
-            if nodes:
-                context["nodes"] = {
-                    "query": query,
-                    "found": len(nodes),
-                    "results": nodes[:10]
-                }
-        except Exception as e:
-            logger.warning(f"Failed to search nodes: {e}")
+        query = message
+        for skip in ["nodo", "node", "buscar", "search", "find"]:
+            query = query.replace(skip, "").strip()
+
+        # Try n8n search first with timeout, fallback to offline
+        nodes = await call_n8n_safe(n8n_tools.search_nodes(query=query), timeout=3.0, default=None)
+        if nodes:
+            context["nodes"] = {
+                "query": query,
+                "found": len(nodes),
+                "results": nodes[:10]
+            }
+        else:
             # Use offline database as fallback
             try:
-                query = message
-                for skip in ["nodo", "node", "buscar", "search", "find"]:
-                    query = query.replace(skip, "").strip()
-                # Search in local database
-                nodes = []
+                nodes_offline = []
                 query_lower = query.lower()
                 for node_id, node_info in {**N8N_NODES_CORE, **N8N_NODES_COMMUNITY}.items():
                     searchable = f"{node_id} {str(node_info)}".lower()
                     if query_lower in searchable:
-                        nodes.append({"id": node_id, "info": node_info})
-                if nodes:
+                        nodes_offline.append({"id": node_id, "info": node_info})
+                if nodes_offline:
                     context["nodes"] = {
                         "query": query,
-                        "found": len(nodes),
-                        "results": nodes[:10],
+                        "found": len(nodes_offline),
+                        "results": nodes_offline[:10],
                         "note": "Using offline database"
                     }
             except Exception as e2:
@@ -1426,22 +1450,20 @@ async def analyze_and_use_tools(message: str) -> Dict[str, Any]:
 
     # Search templates
     if any(word in message_lower for word in ["template", "ejemplo", "example", "crear"]):
-        try:
-            templates = await n8n_tools.search_templates(query=message)
-            if templates:
-                context["templates"] = templates[:8]
-        except Exception as e:
-            logger.warning(f"Failed to search templates: {e}")
+        templates = await call_n8n_safe(n8n_tools.search_templates(query=message), timeout=3.0, default=None)
+        if templates:
+            context["templates"] = templates[:8]
+        else:
             # Use offline database as fallback
             try:
-                templates = []
+                templates_offline = []
                 query_lower = message.lower()
                 for template_id, template_info in N8N_TEMPLATES.items():
                     searchable = f"{template_id} {str(template_info)}".lower()
                     if query_lower in searchable:
-                        templates.append(template_info)
-                if templates:
-                    context["templates"] = templates[:8]
+                        templates_offline.append(template_info)
+                if templates_offline:
+                    context["templates"] = templates_offline[:8]
                     context["templates_note"] = "Using offline database"
             except Exception as e2:
                 logger.error(f"Offline template search failed: {e2}")
