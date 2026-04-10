@@ -1354,7 +1354,7 @@ class N8NMCPTools:
                 follow_redirects=True,
                 verify=False
             ) as client:
-                response = await client.patch(
+                response = await client.put(
                     f"{self.base_url}/workflows/{workflow_id}",
                     headers=self.headers,
                     json=workflow_data

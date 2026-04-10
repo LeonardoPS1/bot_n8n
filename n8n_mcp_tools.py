@@ -81,7 +81,7 @@ class N8NMCPClient:
 
     async def update_workflow(self, workflow_id: str, workflow_data: Dict[str, Any]) -> Dict[str, Any]:
         """Update an existing workflow"""
-        return await self._request("PATCH", f"/workflows/{workflow_id}", json=workflow_data)
+        return await self._request("PUT", f"/workflows/{workflow_id}", json=workflow_data)
 
     async def delete_workflow(self, workflow_id: str) -> Dict[str, Any]:
         """Delete a workflow"""
