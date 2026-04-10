@@ -417,25 +417,26 @@ class OllamaProvider(AIProvider):
         self.api_key = "not-needed"
 
     async def chat(self, messages: List[Dict[str, str]], system_prompt: str) -> str:
-        # Convert messages to Ollama format
-        prompt = f"System: {system_prompt}\n\n"
+        # Ollama /api/chat supports the message format directly
+        ollama_messages = [{"role": "system", "content": system_prompt}]
         for msg in messages:
-            role = msg['role'].capitalize()
-            prompt += f"{role}: {msg['content']}\n"
-        prompt += "Assistant:"
+            ollama_messages.append({
+                "role": msg["role"],
+                "content": msg["content"]
+            })
 
         async with httpx.AsyncClient(timeout=120) as client:
             response = await client.post(
-                f"{self.base_url}/api/generate",
+                f"{self.base_url}/api/chat",
                 json={
                     "model": self.model,
-                    "prompt": prompt,
+                    "messages": ollama_messages,
                     "stream": False
                 }
             )
             response.raise_for_status()
             data = response.json()
-            return data.get('response', '')
+            return data.get("message", {}).get("content", "")
 
     async def is_available(self) -> bool:
         try:
@@ -1644,7 +1645,19 @@ CRITICAL: YOU ARE A CONSULTATIVE n8n ARCHITECT, NOT JUST A BOT.
         logger.error(f"Error in chat endpoint: {e}")
         import traceback
         logger.debug(traceback.format_exc())
-        raise HTTPException(status_code=500, detail=str(e))
+        
+        error_display = str(e)
+        if "rate_limit" in error_display.lower() or "quota" in error_display.lower():
+            error_display = "OpenAI is currently rate-limited and all fallbacks (Claude/DeepSeek) have failed or have insufficient balance. Please wait a few minutes."
+        
+        return ChatResponse(
+            response=f"⚠️ {error_display}",
+            timestamp=datetime.now().isoformat(),
+            model="error",
+            provider="system",
+            tools_used=[],
+            context={"error": str(e)}
+        )
 
 
 async def analyze_and_use_tools(message: str) -> Dict[str, Any]:
