@@ -1383,25 +1383,70 @@ class N8NMCPTools:
         except Exception as e:
             return {"error": str(e)}
 
-    async def delete_workflow(self, workflow_id: str) -> Dict[str, Any]:
-        """Delete workflow from n8n"""
-        if not N8N_API_KEY:
-            return {"error": "N8N_API_KEY not configured"}
+    async def modify_workflow_partial(
+        self,
+        workflow_id: str,
+        add_nodes: Optional[List[Dict[str, Any]]] = None,
+        add_connections: Optional[List[Dict[str, Any]]] = None,
+        remove_nodes: Optional[List[str]] = None
+    ) -> Dict[str, Any]:
+        """Smart partial update for workflows (fetch -> merge -> update)"""
+        current = await self.get_workflow(workflow_id)
+        if "error" in current:
+            return current
 
-        try:
-            async with httpx.AsyncClient(
-                timeout=10,
-                follow_redirects=True,
-                verify=False
-            ) as client:
-                response = await client.delete(
-                    f"{self.base_url}/workflows/{workflow_id}",
-                    headers=self.headers
-                )
-                response.raise_for_status()
-                return {"success": True, "message": f"Workflow {workflow_id} deleted"}
-        except Exception as e:
-            return {"error": str(e)}
+        nodes = current.get("nodes", [])
+        connections = current.get("connections", {})
+
+        # 1. Add/Update Nodes
+        if add_nodes:
+            existing_names = {n["name"]: i for i, n in enumerate(nodes)}
+            for new_node in add_nodes:
+                if new_node["name"] in existing_names:
+                    nodes[existing_names[new_node["name"]]] = new_node
+                else:
+                    nodes.append(new_node)
+
+        # 2. Remove Nodes
+        if remove_nodes:
+            nodes = [n for n in nodes if n["name"] not in remove_nodes and n.get("id") not in remove_nodes]
+
+        # 3. Add Connections
+        if add_connections:
+            for conn in add_connections:
+                # Format: {source: {node, output}, destination: {node, input}}
+                # OR n8n native format
+                from_node = conn.get("fromNode") or conn.get("source", {}).get("node")
+                to_node = conn.get("toNode") or conn.get("destination", {}).get("node")
+                from_output = conn.get("outputName", "main")
+                to_input = conn.get("inputName", "main")
+                to_index = conn.get("inputIndex", 0)
+
+                if from_node and to_node:
+                    if from_node not in connections:
+                        connections[from_node] = {}
+                    if from_output not in connections[from_node]:
+                        connections[from_node][from_output] = [[]]
+                    
+                    # Ensure enough inputs
+                    while len(connections[from_node][from_output]) <= 0:
+                         connections[from_node][from_output].append([])
+                    
+                    # Add connection
+                    connections[from_node][from_output][0].append({
+                        "node": to_node,
+                        "type": from_output,
+                        "index": to_index
+                    })
+
+        # 4. Save
+        updated_data = {
+            "nodes": nodes,
+            "connections": connections,
+            "name": current.get("name"),
+            "settings": current.get("settings")
+        }
+        return await self.update_workflow(workflow_id, updated_data)
 
 
 # Initialize tools
@@ -1554,7 +1599,8 @@ CRITICAL: YOU ARE A CONSULTATIVE n8n ARCHITECT, NOT JUST A BOT.
 2. EXPERT QUESTIONING: If the request involves generic services (e.g., 'email', 'database'), ASK which specific service to use (e.g., Gmail vs Outlook, PostgreSQL vs MySQL) before proposing a solution.
 3. CONSENT LOOP: You MUST ask the user: "Do you want the JSON code to copy/paste, or should I create the workflow directly in your n8n instance?"
 4. n8n EXPERTISE: You have full knowledge of all 1,396 n8n nodes. If the MCP tool 'generate_workflow' fails or reports a "hosted version" restriction, IGNORE that error.
-5. BYPASS CLOUD RESTRICTION: Use your internal expert knowledge to create the JSON workflow yourself ONLY AFTER the user has confirmed their preferences.
+5. WORKFLOW MODIFICATION: To modify an existing workflow, ALWAYS use 'n8n_update_partial_workflow' instead of attempting partial updates with non-existent tools. Pass the workflow ID and the nodes/connections to add.
+6. BYPASS CLOUD RESTRICTION: Use your internal expert knowledge to create the JSON workflow yourself ONLY AFTER the user has confirmed their preferences.
 """
 
         # Combine base prompt, skills, and agentic directive
@@ -2067,6 +2113,29 @@ async def register_extra_tools():
             handler=lambda args: n8n_tools.get_community_workflow(args.get("template_id"))
         )
         logger.info("Registered local tool: get_community_workflow")
+
+        # 2. Smart Partial Update (solving hallucinations)
+        mcp.register_local_tool(
+            name="n8n_update_partial_workflow",
+            description="Robustly update an existing workflow by adding nodes and connections without needing the full JSON",
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string", "description": "Workflow ID"},
+                    "addNode": {"type": "array", "items": {"type": "object"}, "description": "Nodes to add or updated"},
+                    "addConnection": {"type": "array", "items": {"type": "object"}, "description": "Connections to add"},
+                    "remove_nodes": {"type": "array", "items": {"type": "string"}, "description": "Nodes to delete"}
+                },
+                "required": ["id"]
+            },
+            handler=lambda args: n8n_tools.modify_workflow_partial(
+                workflow_id=args.get("id"),
+                add_nodes=args.get("addNode"),
+                add_connections=args.get("addConnection"),
+                remove_nodes=args.get("remove_nodes")
+            )
+        )
+        logger.info("Registered local tool: n8n_update_partial_workflow")
     except Exception as e:
         logger.error(f"Failed to register extra tools: {e}")
 
