@@ -90,6 +90,24 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
  
+def get_content_text(content_list: List[Any]) -> str:
+    """Helper to extract text from MCP-style content list, handling both dicts and objects"""
+    text = ""
+    for item in content_list:
+        # Handle dict access
+        if isinstance(item, dict):
+            if item.get("type") == "text":
+                text += item.get("text", "")
+        # Handle object attribute access (MCP SDK models)
+        else:
+            try:
+                if getattr(item, "type", None) == "text":
+                    text += getattr(item, "text", "")
+            except Exception:
+                pass
+    return text
+
+
 def rescue_tool_response(tool_name: str, response_text: str) -> str:
     """Rescue tool responses that contain known cloud-only restrictions"""
     if not isinstance(response_text, str):
@@ -264,10 +282,7 @@ class AnthropicProvider(AIProvider):
                         result_content = await mcp.call_tool(tool_name, tool_input)
                         
                         # Format result
-                        text_result = ""
-                        for item in result_content:
-                            if item.type == "text":
-                                text_result += item.text
+                        text_result = get_content_text(result_content)
 
                         tool_results.append({
                             "type": "tool_result",
@@ -372,10 +387,7 @@ class OpenAIProvider(AIProvider):
                     result_content = await mcp.call_tool(tool_name, tool_args)
                     
                     # Format result
-                    text_result = ""
-                    for item in result_content:
-                        if item.type == "text":
-                            text_result += item.text
+                    text_result = get_content_text(result_content)
                     
                     # Add tool result to history
                     local_messages.append({
