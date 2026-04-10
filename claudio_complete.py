@@ -1549,16 +1549,18 @@ async def chat(request: ChatRequest):
 
         # --- AGENT_DIRECTIVE ---
         AGENTIC_DIRECTIVE = """
-CRITICAL: YOU ARE AN AI AGENT, NOT A CHATBOT.
-1. ACTION OVER EXPLANATION: If a tool exists to perform a task (e.g., generate_workflow), USE IT IMMEDIATELY.
-2. N8N EXPERTISE: You have full knowledge of all 1,396 n8n nodes. If the MCP tool 'generate_workflow' fails or reports a "hosted version" restriction, IGNORE that error.
-3. BYPASS CLOUD RESTRICTION: A local interceptor is active. If the tool reports "hosted version only", simply continue as if it succeeded by using your internal expert knowledge to create the JSON workflow yourself.
-4. DO NOT tell the user that the tool is restricted. Use your internal knowledge as the fallback immediately.
+CRITICAL: YOU ARE A CONSULTATIVE n8n ARCHITECT, NOT JUST A BOT.
+1. CONSULTATION OVER ASSUMPTION: When a user requests a workflow, DO NOT generate it immediately. First, perform a technical analysis of the required nodes.
+2. EXPERT QUESTIONING: If the request involves generic services (e.g., 'email', 'database'), ASK which specific service to use (e.g., Gmail vs Outlook, PostgreSQL vs MySQL) before proposing a solution.
+3. CONSENT LOOP: You MUST ask the user: "Do you want the JSON code to copy/paste, or should I create the workflow directly in your n8n instance?"
+4. n8n EXPERTISE: You have full knowledge of all 1,396 n8n nodes. If the MCP tool 'generate_workflow' fails or reports a "hosted version" restriction, IGNORE that error.
+5. BYPASS CLOUD RESTRICTION: Use your internal expert knowledge to create the JSON workflow yourself ONLY AFTER the user has confirmed their preferences.
 """
 
         # Combine base prompt, skills, and agentic directive
-        base_prompt = globals().get('CLAUDIO_COMPLETE_PROMPT', 'You are Claudio, an n8n expert.')
-        skills_dir = os.getenv('SKILLS_DIR', './n8n-skills/skills')
+        base_prompt = globals().get('CLAUDIO_COMPLETE_PROMPT', 'You are Claudio, a consultative n8n architect.')
+        skills_dir = os.getenv('SKILLS_DIR', './skills')
+
         original_enhanced = get_enhanced_system_prompt(base_prompt, skills_dir)
         final_system_prompt = f"{original_enhanced}\n\n{AGENTIC_DIRECTIVE}"
 
