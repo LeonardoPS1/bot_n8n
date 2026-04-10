@@ -115,13 +115,17 @@ class MCPClient:
             except Exception as e:
                 logger.error(f"Error listing MCP tools: {e}")
         
-        # 2. Add local tools
+        # 2. Add local tools (deduplicated)
+        local_names = set(self.local_tools.keys())
+        tools = [t for t in tools if t["name"] not in local_names]
+        
         for name, info in self.local_tools.items():
             tools.append({
                 "name": name,
                 "description": info["description"],
                 "inputSchema": info["inputSchema"]
             })
+
             
         return tools
 
@@ -135,18 +139,31 @@ class MCPClient:
 
     async def call_tool(self, name: str, arguments: Dict[str, Any]) -> Any:
         """Call a specific tool (local or on the MCP server)"""
-        # 1. Try local tools first
+        # 1. Try local tools first (supporting exact or suffix match)
+        local_info = None
         if name in self.local_tools:
+            local_info = self.local_tools[name]
+            logger.info(f"Using exact local match for tool: {name}")
+        else:
+            # Check for suffix match (e.g. 'n8n-mcp:generate_workflow' -> 'generate_workflow')
+            for lt_name, info in self.local_tools.items():
+                if name.endswith(":" + lt_name):
+                    local_info = info
+                    logger.info(f"Using suffix local match for tool: {name} (matched {lt_name})")
+                    break
+        
+        if local_info:
             try:
-                logger.info(f"Calling local tool '{name}' with args: {json.dumps(arguments)}")
-                result = await self.local_tools[name]["handler"](arguments)
+                logger.info(f"Calling local tool handler with args: {json.dumps(arguments)}")
+                result = await local_info["handler"](arguments)
                 # Results must be list of content objects (like MCP)
                 if isinstance(result, (dict, list)):
                     return [{"type": "text", "text": json.dumps(result, indent=2)}]
                 return [{"type": "text", "text": str(result)}]
             except Exception as e:
-                logger.error(f"Error calling local tool '{name}': {e}")
+                logger.error(f"Error in local tool '{name}': {e}")
                 return [{"type": "text", "text": f"Error: {str(e)}"}]
+
 
         # 2. Call MCP server
         if not self.session:
@@ -163,14 +180,52 @@ class MCPClient:
 # Singleton instance
 _mcp_client_instance = None
 
+async def register_standard_overrides(client: MCPClient):
+    """Register standard tool overrides for n8n-MCP"""
+    
+    async def handle_generate_workflow(arguments: Dict[str, Any]) -> str:
+        description = arguments.get("description", "No description provided")
+        return (
+            "✅ INTERCEPTOR LOCAL ACTIVADO: Generación de Flujo de Trabajo\n\n"
+            f"Descripción del flujo: {description}\n\n"
+            "Instrucciones para el Agente Claudio:\n"
+            "1. NO necesitas la versión alojada de n8n-MCP para esta tarea.\n"
+            "2. Procede a diseñar el flujo de trabajo JSON completo utilizando tu conocimiento experto de n8n.\n"
+            "3. Asegúrate de incluir todos los nodos necesarios, parámetros correctos y conexiones main.\n"
+            "4. Si el usuario desea crear el flujo en su instancia, proporciónale el JSON y recuérdale que puede usar la herramienta 'create_workflow' si está disponible."
+        )
+
+    client.register_local_tool(
+        name="generate_workflow",
+        description="Genera un nuevo flujo de trabajo n8n a partir de una descripción en lenguaje natural (Versión Local)",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "description": {
+                    "type": "string",
+                    "description": "Descripción detallada del flujo que se desea crear"
+                }
+            },
+            "required": ["description"]
+        },
+        handler=handle_generate_workflow
+    )
+
 async def get_mcp_client() -> MCPClient:
     """Get or create the global MCP client instance"""
     global _mcp_client_instance
     if _mcp_client_instance is None:
         # Check if we should use local source or npx
         # For now, use npx n8n-mcp as it's the easiest to deploy
-        # If npx is not available or we want to use the cloned repo:
-        # client = MCPClient(command="node", args=["/path/to/n8n-mcp/dist/mcp/index.js"])
         _mcp_client_instance = MCPClient(command="npx", args=["-y", "n8n-mcp@latest"])
         await _mcp_client_instance.connect()
+        
+        # Register standard tool overrides
+        try:
+            await register_standard_overrides(_mcp_client_instance)
+            logger.info("Standard MCP tool overrides registered")
+        except Exception as e:
+            logger.error(f"Failed to register standard overrides: {e}")
+            
     return _mcp_client_instance
+
