@@ -55,7 +55,8 @@ if (Test-Path $plinkPath) {
     Write-Host "Usando ssh (requiere que ingreses contraseña)..." -ForegroundColor Yellow
     Write-Host "Contraseña: $VPS_PASSWORD" -ForegroundColor Cyan
     Write-Host ""
-    ssh -o StrictHostKeyChecking=no "$VPS_USER@$VPS_HOST" "bash -s" < "$env:TEMP\update_claudio.sh"
+    Get-Content "$env:TEMP\update_claudio.sh" | ssh -o StrictHostKeyChecking=no "$VPS_USER@$VPS_HOST" "bash -s"
+
 }
 
 # Limpiar
